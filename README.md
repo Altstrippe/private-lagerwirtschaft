@@ -40,5 +40,5 @@ alembic upgrade head
 
 python -m app.db.run\_seed
 
-streamlit run app/app.py
+streamlit run app/main.py
 

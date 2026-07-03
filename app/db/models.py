@@ -29,6 +29,8 @@ def utc_now() -> datetime:
 class LocationType(str, enum.Enum):
     SCHRANK = "schrank"
     FACH = "fach"
+    def __str__(self) -> str:
+        return self.value
 
 
 class User(Base):
@@ -77,8 +79,14 @@ class Location(Base):
         UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False
     )
     locationtype: Mapped[LocationType] = mapped_column(
-        Enum(LocationType, name="locationtype_enum"), nullable=False
-    )
+    Enum(
+        LocationType,
+        name="locationtype_enum",
+        values_callable=lambda enum_cls: [item.value for item in enum_cls],
+    ),
+    nullable=False,
+)
+
     label: Mapped[str] = mapped_column(String(100), nullable=False)
     photo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
