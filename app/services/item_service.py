@@ -81,3 +81,33 @@ def search_items(session: Session, query: str) -> list[Item]:
         .order_by(Room.name, Location.label, Item.name)
     )
     return list(session.scalars(stmt).all())
+
+def list_stock_items(
+    session: Session,
+    room_name: str | None = None,
+    only_loanable: bool = False,
+    only_on_loan: bool = False,
+    only_with_expiry: bool = False,
+) -> list[Item]:
+    stmt = (
+        select(Item)
+        .join(Item.location)
+        .join(Location.room)
+        .options(joinedload(Item.location).joinedload(Location.room))
+    )
+
+    if room_name and room_name != "Alle":
+        stmt = stmt.where(Room.name == room_name)
+
+    if only_loanable:
+        stmt = stmt.where(Item.isloanable.is_(True))
+
+    if only_on_loan:
+        stmt = stmt.where(Item.isonloan.is_(True))
+
+    if only_with_expiry:
+        stmt = stmt.where(Item.expirydate.is_not(None))
+
+    stmt = stmt.order_by(Room.name, Location.locationtype, Location.label, Item.name)
+
+    return list(session.scalars(stmt).all())
