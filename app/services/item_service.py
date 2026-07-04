@@ -111,3 +111,15 @@ def list_stock_items(
     stmt = stmt.order_by(Room.name, Location.locationtype, Location.label, Item.name)
 
     return list(session.scalars(stmt).all())
+
+def list_loanable_available_items(session: Session) -> list[Item]:
+    stmt = (
+        select(Item)
+        .options(joinedload(Item.location).joinedload(Location.room))
+        .where(
+            Item.isloanable.is_(True),
+            Item.isonloan.is_(False),
+        )
+        .order_by(Item.name)
+    )
+    return list(session.scalars(stmt).all())
