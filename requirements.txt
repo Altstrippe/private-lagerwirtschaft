@@ -1,5 +1,6 @@
 streamlit==1.47.0
 sqlalchemy==2.0.41
+psycopg2-binary
 alembic==1.16.4
 psycopg[binary]==3.2.9
 python-dotenv==1.1.1
