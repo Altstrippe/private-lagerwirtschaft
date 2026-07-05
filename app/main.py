@@ -10,8 +10,6 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 
 from app.core.config import get_settings
-from app.db.session import SessionLocal
-from app.services.auth_service import ensure_session_state, login, logout
 
 settings = get_settings()
 
@@ -21,31 +19,13 @@ st.set_page_config(
     layout="wide",
 )
 
-ensure_session_state()
-
-if not st.session_state.authenticated:
+# Login-Logik komplett entfernt
+col1, col2 = st.columns([4, 1])
+with col1:
     st.title(settings.app_title)
-    st.subheader("Login")
+with col2:
+    # Optional: Den Abmelden-Button kannst du hier auch entfernen, 
+    # da du ja keinen Login mehr hast.
+    pass 
 
-    username = st.text_input("Benutzername")
-    password = st.text_input("Passwort", type="password")
-
-    if st.button("Anmelden", use_container_width=True):
-        with SessionLocal() as session:
-            ok = login(session, username, password)
-
-        if ok:
-            st.rerun()
-        else:
-            st.error("Benutzername oder Passwort ist falsch.")
-else:
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.title(settings.app_title)
-    with col2:
-        if st.button("Abmelden", use_container_width=True):
-            logout()
-            st.rerun()
-
-    st.success(f"Angemeldet als {st.session_state.username}.")
-    st.info("Bitte waehle links eine Seite aus.")
+st.info("Willkommen in deiner Lagerverwaltung. Bitte wähle links eine Seite aus.")
