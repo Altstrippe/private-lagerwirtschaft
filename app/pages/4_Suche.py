@@ -16,10 +16,6 @@ from app.services.item_service import search_items
 
 st.set_page_config(page_title="Suche", page_icon="🔎", layout="wide")
 
-if not require_login():
-    st.warning("Bitte zuerst anmelden.")
-    st.stop()
-
 st.title("Suche")
 
 query = st.text_input(

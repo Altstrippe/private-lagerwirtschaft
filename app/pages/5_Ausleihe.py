@@ -17,10 +17,6 @@ from app.services.loan_service import create_loan, list_open_loans, return_loan
 
 st.set_page_config(page_title="Ausleihe", page_icon="🤝", layout="wide")
 
-if not require_login():
-    st.warning("Bitte zuerst anmelden.")
-    st.stop()
-
 st.title("Ausleihe")
 
 with SessionLocal() as session:

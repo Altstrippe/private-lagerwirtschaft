@@ -17,10 +17,6 @@ from app.services.room_service import list_rooms
 
 st.set_page_config(page_title="Lagerplaetze", page_icon="📍", layout="wide")
 
-if not require_login():
-    st.warning("Bitte zuerst anmelden.")
-    st.stop()
-
 st.title("Lagerplaetze")
 
 with SessionLocal() as session:

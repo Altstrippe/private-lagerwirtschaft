@@ -15,10 +15,6 @@ from app.services.dashboard_service import get_dashboard_stats
 
 st.set_page_config(page_title="Dashboard", page_icon="🏠", layout="wide")
 
-if not require_login():
-    st.warning("Bitte zuerst anmelden.")
-    st.stop()
-
 st.title("Dashboard")
 st.caption("Schnellueberblick ueber deine private Lagerwirtschaft")
 
