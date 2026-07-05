@@ -13,8 +13,10 @@ def format_item_row(item: Item) -> dict[str, object]:
         "Nummer": item.location.label,
         "Ausleihbar": "Ja" if item.isloanable else "Nein",
         "Ausgeliehen": "Ja" if item.isonloan else "Nein",
+        "Haushalt": "Ja" if item.ishousehold else "Nein",
         "Haltbarkeit": item.expirydate.isoformat() if item.expirydate else "",
         "Kabeltyp": item.cabletype or "",
         "Meter": float(item.cablelengthmeter) if item.cablelengthmeter else "",
         "Notiz": item.note or "",
+        "photolink": item.photolink,
     }

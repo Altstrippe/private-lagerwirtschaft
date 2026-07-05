@@ -40,4 +40,13 @@ if not results:
     st.warning("Keine Treffer gefunden.")
 else:
     rows = [format_item_row(item) for item in results]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    
+    # HIER IST DIE ÄNDERUNG: Die Tabelle bekommt die column_config für den Fotolink
+    st.dataframe(
+        rows, 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "photolink": st.column_config.LinkColumn("📸 Foto", display_text="Anschauen 🔗")
+        }
+    )

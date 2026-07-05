@@ -28,10 +28,10 @@ with SessionLocal() as session:
 
 room_names = ["Alle"] + [room.name for room in rooms]
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
-    selected_room = st.selectbox("Raum", options=room_names)
+    selected_room = st.selectbox("Raum", options=["Alle", "Halle", "Werkstatt", "EVA", "Honigraum"])
 
 with col2:
     only_loanable = st.checkbox("Nur ausleihbar")
@@ -42,6 +42,12 @@ with col3:
 with col4:
     only_with_expiry = st.checkbox("Nur mit Haltbarkeit")
 
+with col5:
+    only_household = st.checkbox("Nur Haushalt")
+
+with col6:
+    only_cables = st.checkbox("Nur Kabel")
+
 with SessionLocal() as session:
     items = list_stock_items(
         session=session,
@@ -49,6 +55,8 @@ with SessionLocal() as session:
         only_loanable=only_loanable,
         only_on_loan=only_on_loan,
         only_with_expiry=only_with_expiry,
+        only_household=only_household,
+        only_cables=only_cables,
     )
 
 st.subheader("Gesamter Lagerbestand")

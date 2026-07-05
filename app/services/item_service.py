@@ -4,33 +4,31 @@ from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import text
 
 from app.db.models import Item, Location, Room
 
 
 def create_item(
     session: Session,
-    locationid,
+    locationid: int,
     name: str,
-    quantity: Decimal,
+    quantity,
     unit: str | None = None,
     note: str | None = None,
     expirydate=None,
     isloanable: bool = False,
+    ishousehold: bool = False,
     cabletype: str | None = None,
-    cablelengthmeter: Decimal | None = None,
-) -> Item:
+    cablelengthmeter=None,
+    photolink: str | None = None,
+):
+    
     clean_name = name.strip()
-
     if not clean_name:
-        raise ValueError("Artikelname ist erforderlich.")
+        raise ValueError("Der Artikelname darf nicht leer sein.")
 
-    if quantity < Decimal("0"):
-        raise ValueError("Menge darf nicht negativ sein.")
-
-    if cablelengthmeter is not None and cablelengthmeter < Decimal("0"):
-        raise ValueError("Kabellaenge darf nicht negativ sein.")
-
+    # Neues Item erstellen
     item = Item(
         locationid=locationid,
         name=clean_name,
@@ -39,14 +37,16 @@ def create_item(
         note=note.strip() if note else None,
         expirydate=expirydate,
         isloanable=isloanable,
+        ishousehold=ishousehold,
         cabletype=cabletype.strip() if cabletype else None,
         cablelengthmeter=cablelengthmeter,
+        photolink=photolink,
     )
+    
     session.add(item)
     session.commit()
     session.refresh(item)
     return item
-
 
 def list_items(session: Session) -> list[Item]:
     stmt = (
@@ -88,6 +88,8 @@ def list_stock_items(
     only_loanable: bool = False,
     only_on_loan: bool = False,
     only_with_expiry: bool = False,
+    only_household: bool = False,
+    only_cables: bool = False,
 ) -> list[Item]:
     stmt = (
         select(Item)
@@ -108,9 +110,30 @@ def list_stock_items(
     if only_with_expiry:
         stmt = stmt.where(Item.expirydate.is_not(None))
 
+    if only_household:
+        stmt = stmt.where(Item.ishousehold.is_(True))
+
+    if only_cables:
+        stmt = stmt.where(
+            (Item.cabletype.is_not(None)) | (Item.cablelengthmeter.is_not(None))
+        )
+
     stmt = stmt.order_by(Room.name, Location.locationtype, Location.label, Item.name)
 
     return list(session.scalars(stmt).all())
+
+def delete_item(session: Session, item_id) -> bool:
+    """Löscht einen Artikel inkl. seiner Ausleih-Historie komplett aus der Datenbank."""
+    item = session.get(Item, item_id)
+    if item:
+        # 1. Zuerst alle verknüpften Ausleih-Einträge (loans) löschen
+        session.execute(text("DELETE FROM loans WHERE itemid = :id"), {"id": item_id})
+        
+        # 2. Dann den Artikel selbst löschen
+        session.delete(item)
+        session.commit()
+        return True
+    return False
 
 def list_loanable_available_items(session: Session) -> list[Item]:
     stmt = (
@@ -123,3 +146,46 @@ def list_loanable_available_items(session: Session) -> list[Item]:
         .order_by(Item.name)
     )
     return list(session.scalars(stmt).all())
+
+def update_item(
+    session: Session,
+    item_id: int,
+    locationid: int,
+    name: str,
+    quantity: Decimal,
+    unit: str | None = None,
+    note: str | None = None,
+    expirydate=None,
+    isloanable: bool = False,
+    ishousehold: bool = False,
+    cabletype: str | None = None,
+    cablelengthmeter=None,
+    photolink: str | None = None,
+) -> Item:
+    # 1. Artikel anhand seiner ID aus der Datenbank holen
+    item = session.get(Item, item_id)
+    if not item:
+        raise ValueError("Artikel wurde nicht gefunden.")
+
+    # 2. Name bereinigen und validieren
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("Der Artikelname darf nicht leer sein.")
+
+    # 3. Die neuen Werte übergeben
+    item.locationid = locationid
+    item.name = clean_name
+    item.quantity = quantity
+    item.unit = unit.strip() if unit else None
+    item.note = note.strip() if note else None
+    item.expirydate = expirydate
+    item.isloanable = isloanable
+    item.ishousehold = ishousehold
+    item.cabletype = cabletype.strip() if cabletype else None
+    item.cablelengthmeter = cablelengthmeter
+
+    # 4. In die Datenbank speichern
+    item.photolink = photolink
+    session.commit()
+    session.refresh(item)
+    return item

@@ -15,6 +15,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
+
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -124,6 +126,7 @@ class Item(Base):
     expirydate: Mapped[date | None] = mapped_column(Date, nullable=True)
     isloanable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     isonloan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ishousehold: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     cabletype: Mapped[str | None] = mapped_column(String(100), nullable=True)
     cablelengthmeter: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     createdat: Mapped[datetime] = mapped_column(
@@ -135,6 +138,8 @@ class Item(Base):
 
     location: Mapped["Location"] = relationship(back_populates="items")
     loans: Mapped[list["Loan"]] = relationship(back_populates="item")
+
+    photolink: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Loan(Base):
