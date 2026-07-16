@@ -42,7 +42,7 @@ else:
         rows, 
         use_container_width=True,
         hide_index=True,
-        selection_mode="single-row",           # <--- Das macht die Zeilen klickbar
+        selection_mode="single-row"           # <--- Das macht die Zeilen klickbar
         column_config={
             "ID": None,              # <--- ID in der Tabelle unsichtbar machen
             "photolink": st.column_config.LinkColumn("📸 Foto", display_text="Anschauen 🔗")
