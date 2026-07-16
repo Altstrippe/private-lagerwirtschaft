@@ -20,6 +20,10 @@ from app.services.location_service import list_locations
 
 st.set_page_config(page_title="Artikel", page_icon="📦", layout="wide")
 
+if not require_login():
+    st.warning("Bitte zuerst anmelden.")
+    st.stop()
+
 st.title("Artikel")
 
 with SessionLocal() as session:
@@ -55,7 +59,6 @@ with tab_neu:
         unit = st.text_input("Einheit", placeholder="z.B. Stk, m, Rolle")
         note = st.text_area("Notiz", height=80)
         
-        # --- NEU: Foto-Link Eingabe ---
         photolink = st.text_input("🔗 Dropbox Foto-Link (Optional)", placeholder="https://www.dropbox.com/...")
 
         expiry_enabled = st.checkbox("Haltbarkeitsdatum setzen")
@@ -63,16 +66,20 @@ with tab_neu:
         if expiry_enabled:
             expirydate = st.date_input("Haltbarkeitsdatum", value=date.today())
 
-        isloanable = st.checkbox("Ausleihbar")
-        ishousehold = st.checkbox("Haushaltsartikel")
-        is_cable = st.checkbox("Artikel ist ein Kabel")
+        st.markdown("---")
+        st.write("**Eigenschaften**")
+        col_prop1, col_prop2 = st.columns(2)
         
-        cabletype = None
-        cablelengthmeter = None
-        if is_cable:
-            cabletype = st.text_input("Kabeltyp", placeholder="z.B. CAT7, H07RN-F")
+        with col_prop1:
+            isloanable = st.checkbox("Ausleihbar")
+            ishousehold = st.checkbox("Haushaltsartikel")
+            is_tool = st.checkbox("Werkzeug") # <--- NEU: Werkzeug Haken
+            
+        with col_prop2:
+            # Kabel-Felder sind jetzt immer sichtbar
+            cabletype = st.text_input("Kabeltyp (Optional)", placeholder="z.B. CAT7, H07RN-F")
             cablelengthmeter = st.number_input(
-                "Kabellaenge in Meter",
+                "Kabellaenge in Meter (Optional)",
                 min_value=0.0,
                 value=0.0,
                 step=1.0,
@@ -92,12 +99,13 @@ with tab_neu:
                         quantity=Decimal(str(quantity)),
                         unit=unit.strip() or None,
                         note=note.strip() or None,
-                        photolink=photolink.strip() or None,  # --- NEU: Foto-Link speichern ---
+                        photolink=photolink.strip() or None,  
                         expirydate=expirydate if expiry_enabled else None,
                         isloanable=isloanable,
                         ishousehold=ishousehold,
+                        is_tool=is_tool, # <--- NEU
                         cabletype=cabletype.strip() if cabletype else None,
-                        cablelengthmeter=Decimal(str(cablelengthmeter)) if is_cable else None,
+                        cablelengthmeter=Decimal(str(cablelengthmeter)) if cablelengthmeter > 0 else None,
                     )
                 st.success("Artikel wurde angelegt.")
                 st.rerun()
@@ -113,7 +121,6 @@ with tab_bearbeiten:
         # Dictionary für das Dropdown-Menü: "Name (ID: 12)" -> Item-Objekt
         item_options = {f"{item.name} (ID: {item.id})": item for item in items}
         
-        # Welcher Artikel soll bearbeitet werden?
         selected_item_label = st.selectbox("Welchen Artikel möchtest du bearbeiten?", options=list(item_options.keys()))
         item_to_edit = item_options[selected_item_label]
         
@@ -124,7 +131,6 @@ with tab_bearbeiten:
                 old_location_label = label
                 break
 
-        # Bearbeitungs-Formular (Werte sind mit den alten Daten vorausgefüllt!)
         with st.form("edit_item_form"):
             st.markdown(f"**Daten für:** {item_to_edit.name}")
             
@@ -139,7 +145,6 @@ with tab_bearbeiten:
             edit_unit = st.text_input("Einheit ändern", value=item_to_edit.unit if item_to_edit.unit else "")
             edit_note = st.text_area("Notiz ändern", value=item_to_edit.note if item_to_edit.note else "", height=80)
             
-            # --- NEU: Foto-Link bearbeiten (mit Fallback, falls die Eigenschaft noch leer/neu ist) ---
             current_photolink = getattr(item_to_edit, 'photolink', "") or ""
             edit_photolink = st.text_input("🔗 Dropbox Foto-Link ändern", value=current_photolink)
             
@@ -149,18 +154,22 @@ with tab_bearbeiten:
             if edit_expiry_enabled:
                 edit_expirydate = st.date_input("Neues Haltbarkeitsdatum", value=item_to_edit.expirydate if has_expiry else date.today())
             
-            edit_isloanable = st.checkbox("Ausleihbar", value=item_to_edit.isloanable)
-            edit_ishousehold = st.checkbox("Haushaltsartikel", value=item_to_edit.ishousehold)
+            st.markdown("---")
+            st.write("**Eigenschaften ändern**")
+            edit_col_prop1, edit_col_prop2 = st.columns(2)
             
-            is_cable_old = item_to_edit.cabletype is not None or item_to_edit.cablelengthmeter is not None
-            edit_is_cable = st.checkbox("Artikel ist ein Kabel", value=is_cable_old)
-            
-            edit_cabletype = None
-            edit_cablelengthmeter = None
-            if edit_is_cable:
-                edit_cabletype = st.text_input("Kabeltyp", value=item_to_edit.cabletype if item_to_edit.cabletype else "")
+            with edit_col_prop1:
+                edit_isloanable = st.checkbox("Ausleihbar", value=item_to_edit.isloanable)
+                edit_ishousehold = st.checkbox("Haushaltsartikel", value=item_to_edit.ishousehold)
+                # Fallback für den Boolean-Wert, falls das Feld im alten Objekt nicht existiert
+                current_is_tool = getattr(item_to_edit, 'is_tool', False)
+                edit_is_tool = st.checkbox("Werkzeug", value=current_is_tool)
+                
+            with edit_col_prop2:
+                # Kabel-Felder sind jetzt immer sichtbar
+                edit_cabletype = st.text_input("Kabeltyp (Optional)", value=item_to_edit.cabletype if item_to_edit.cabletype else "")
                 edit_cablelengthmeter = st.number_input(
-                    "Kabellaenge in Meter", 
+                    "Kabellaenge in Meter (Optional)", 
                     min_value=0.0, 
                     step=1.0, 
                     value=float(item_to_edit.cablelengthmeter) if item_to_edit.cablelengthmeter else 0.0
@@ -181,12 +190,13 @@ with tab_bearbeiten:
                             quantity=Decimal(str(edit_quantity)),
                             unit=edit_unit.strip() or None,
                             note=edit_note.strip() or None,
-                            photolink=edit_photolink.strip() or None,  # --- NEU: Geänderten Link speichern ---
+                            photolink=edit_photolink.strip() or None, 
                             expirydate=edit_expirydate if edit_expiry_enabled else None,
                             isloanable=edit_isloanable,
                             ishousehold=edit_ishousehold,
-                            cabletype=edit_cabletype.strip() if edit_cabletype and edit_is_cable else None,
-                            cablelengthmeter=Decimal(str(edit_cablelengthmeter)) if edit_is_cable and edit_cablelengthmeter is not None else None,
+                            is_tool=edit_is_tool, # <--- NEU
+                            cabletype=edit_cabletype.strip() if edit_cabletype else None,
+                            cablelengthmeter=Decimal(str(edit_cablelengthmeter)) if edit_cablelengthmeter > 0 else None,
                         )
                     st.success("Artikel erfolgreich aktualisiert!")
                     st.rerun()
@@ -196,7 +206,6 @@ with tab_bearbeiten:
         st.subheader("🗑️ Gefahrenzone")
         st.warning(f"Achtung: Wenn du '{item_to_edit.name}' löschst, wird der Artikel komplett aus der Datenbank entfernt.")
         
-        # Eine Checkbox als Sicherung, bevor der Lösch-Button erscheint
         confirm_delete = st.checkbox("Ja, ich möchte diesen Artikel wirklich löschen.")
         
         if confirm_delete:
@@ -217,12 +226,44 @@ if not items:
 else:
     rows = [format_item_row(item) for item in items]
     
-    # NEU: Falls "photolink" in deiner format_item_row auftaucht, wird es hier als klickbarer Link gerendert
-    st.dataframe(
+    # HIER IST DIE ÄNDERUNG: Tabelle klickbar machen und ID verstecken
+    selection = st.dataframe(
         rows, 
         use_container_width=True, 
         hide_index=True,
+        on_select="rerun",           
+        selection_mode="single_row", 
         column_config={
+            "ID": None,              
             "photolink": st.column_config.LinkColumn("📸 Foto", display_text="Anschauen 🔗")
         }
     )
+
+    # WENN EINE ZEILE ANGEKLICKT WIRD, DETAILS ANZEIGEN:
+    if len(selection.selection.rows) > 0:
+        selected_index = selection.selection.rows[0]
+        selected_item = items[selected_index]
+
+        st.markdown("---")
+        st.subheader(f"🏷️ Details: {selected_item.name}")
+        
+        detail_col1, detail_col2 = st.columns(2)
+        with detail_col1:
+            st.markdown(f"**Lagerort:** {selected_item.location.room.name} | {selected_item.location.locationtype.value} | {selected_item.location.label}")
+            st.markdown(f"**Menge:** {float(selected_item.quantity)} {selected_item.unit or ''}")
+            if selected_item.expirydate:
+                st.markdown(f"**Haltbarkeit:** {selected_item.expirydate.isoformat()}")
+            if selected_item.note:
+                st.info(f"**Notiz:** {selected_item.note}")
+
+        with detail_col2:
+            st.markdown(f"**Werkzeug:** {'Ja' if selected_item.is_tool else 'Nein'}")
+            st.markdown(f"**Haushalt:** {'Ja' if selected_item.ishousehold else 'Nein'}")
+            st.markdown(f"**Ausleihbar:** {'Ja' if selected_item.isloanable else 'Nein'}")
+            st.markdown(f"**Ausgeliehen:** {'Ja' if selected_item.isonloan else 'Nein'}")
+            
+            if selected_item.cabletype or selected_item.cablelengthmeter:
+                st.markdown(f"**Kabel:** {selected_item.cabletype or '-'} ({float(selected_item.cablelengthmeter) if selected_item.cablelengthmeter else 0} m)")
+            
+            if selected_item.photolink:
+                st.markdown(f"[📸 Foto in Dropbox öffnen]({selected_item.photolink})")

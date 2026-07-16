@@ -19,6 +19,7 @@ def create_item(
     expirydate=None,
     isloanable: bool = False,
     ishousehold: bool = False,
+    is_tool: bool = False,  # <--- NEU: Werkzeug
     cabletype: str | None = None,
     cablelengthmeter=None,
     photolink: str | None = None,
@@ -38,6 +39,7 @@ def create_item(
         expirydate=expirydate,
         isloanable=isloanable,
         ishousehold=ishousehold,
+        is_tool=is_tool,  # <--- NEU: Werkzeug
         cabletype=cabletype.strip() if cabletype else None,
         cablelengthmeter=cablelengthmeter,
         photolink=photolink,
@@ -47,6 +49,7 @@ def create_item(
     session.commit()
     session.refresh(item)
     return item
+
 
 def list_items(session: Session) -> list[Item]:
     stmt = (
@@ -82,6 +85,7 @@ def search_items(session: Session, query: str) -> list[Item]:
     )
     return list(session.scalars(stmt).all())
 
+
 def list_stock_items(
     session: Session,
     room_name: str | None = None,
@@ -90,6 +94,7 @@ def list_stock_items(
     only_with_expiry: bool = False,
     only_household: bool = False,
     only_cables: bool = False,
+    only_tools: bool = False,  # <--- NEU: Filter für Werkzeuge
 ) -> list[Item]:
     stmt = (
         select(Item)
@@ -113,6 +118,9 @@ def list_stock_items(
     if only_household:
         stmt = stmt.where(Item.ishousehold.is_(True))
 
+    if only_tools:  # <--- NEU: Filter für Werkzeuge
+        stmt = stmt.where(Item.is_tool.is_(True))
+
     if only_cables:
         stmt = stmt.where(
             (Item.cabletype.is_not(None)) | (Item.cablelengthmeter.is_not(None))
@@ -121,6 +129,7 @@ def list_stock_items(
     stmt = stmt.order_by(Room.name, Location.locationtype, Location.label, Item.name)
 
     return list(session.scalars(stmt).all())
+
 
 def delete_item(session: Session, item_id) -> bool:
     """Löscht einen Artikel inkl. seiner Ausleih-Historie komplett aus der Datenbank."""
@@ -135,6 +144,7 @@ def delete_item(session: Session, item_id) -> bool:
         return True
     return False
 
+
 def list_loanable_available_items(session: Session) -> list[Item]:
     stmt = (
         select(Item)
@@ -147,6 +157,7 @@ def list_loanable_available_items(session: Session) -> list[Item]:
     )
     return list(session.scalars(stmt).all())
 
+
 def update_item(
     session: Session,
     item_id: int,
@@ -158,6 +169,7 @@ def update_item(
     expirydate=None,
     isloanable: bool = False,
     ishousehold: bool = False,
+    is_tool: bool = False,  # <--- NEU: Werkzeug
     cabletype: str | None = None,
     cablelengthmeter=None,
     photolink: str | None = None,
@@ -181,11 +193,12 @@ def update_item(
     item.expirydate = expirydate
     item.isloanable = isloanable
     item.ishousehold = ishousehold
+    item.is_tool = is_tool  # <--- NEU: Werkzeug
     item.cabletype = cabletype.strip() if cabletype else None
     item.cablelengthmeter = cablelengthmeter
+    item.photolink = photolink
 
     # 4. In die Datenbank speichern
-    item.photolink = photolink
     session.commit()
     session.refresh(item)
     return item

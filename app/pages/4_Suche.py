@@ -16,6 +16,10 @@ from app.services.item_service import search_items
 
 st.set_page_config(page_title="Suche", page_icon="🔎", layout="wide")
 
+if not require_login():
+    st.warning("Bitte zuerst anmelden.")
+    st.stop()
+
 st.title("Suche")
 
 query = st.text_input(
@@ -37,12 +41,44 @@ if not results:
 else:
     rows = [format_item_row(item) for item in results]
     
-    # HIER IST DIE ÄNDERUNG: Die Tabelle bekommt die column_config für den Fotolink
-    st.dataframe(
+    # HIER IST DIE ÄNDERUNG: Tabelle klickbar machen und ID verstecken
+    selection = st.dataframe(
         rows, 
         use_container_width=True, 
         hide_index=True,
+        on_select="rerun",           # <--- Das macht die Zeilen klickbar
+        selection_mode="single_row", # <--- Man kann immer nur eine Zeile auswählen
         column_config={
+            "ID": None,              # <--- ID in der Tabelle unsichtbar machen
             "photolink": st.column_config.LinkColumn("📸 Foto", display_text="Anschauen 🔗")
         }
     )
+
+    # WENN EINE ZEILE ANGEKLICKT WIRD, DETAILS ANZEIGEN:
+    if len(selection.selection.rows) > 0:
+        selected_index = selection.selection.rows[0]
+        selected_item = results[selected_index]
+
+        st.markdown("---")
+        st.subheader(f"🏷️ Details: {selected_item.name}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**Lagerort:** {selected_item.location.room.name} | {selected_item.location.locationtype.value} | {selected_item.location.label}")
+            st.markdown(f"**Menge:** {float(selected_item.quantity)} {selected_item.unit or ''}")
+            if selected_item.expirydate:
+                st.markdown(f"**Haltbarkeit:** {selected_item.expirydate.isoformat()}")
+            if selected_item.note:
+                st.info(f"**Notiz:** {selected_item.note}")
+
+        with col2:
+            st.markdown(f"**Werkzeug:** {'Ja' if selected_item.is_tool else 'Nein'}")
+            st.markdown(f"**Haushalt:** {'Ja' if selected_item.ishousehold else 'Nein'}")
+            st.markdown(f"**Ausleihbar:** {'Ja' if selected_item.isloanable else 'Nein'}")
+            st.markdown(f"**Ausgeliehen:** {'Ja' if selected_item.isonloan else 'Nein'}")
+            
+            if selected_item.cabletype or selected_item.cablelengthmeter:
+                st.markdown(f"**Kabel:** {selected_item.cabletype or '-'} ({float(selected_item.cablelengthmeter) if selected_item.cablelengthmeter else 0} m)")
+            
+            if selected_item.photolink:
+                st.markdown(f"[📸 Foto in Dropbox öffnen]({selected_item.photolink})")

@@ -127,6 +127,7 @@ class Item(Base):
     isloanable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     isonloan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ishousehold: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    is_tool: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     cabletype: Mapped[str | None] = mapped_column(String(100), nullable=True)
     cablelengthmeter: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     createdat: Mapped[datetime] = mapped_column(
