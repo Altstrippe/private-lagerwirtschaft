@@ -227,8 +227,8 @@ else:
         rows, 
         use_container_width=True, 
         hide_index=True,
-        on_select="rerun",           
-        selection_mode="single_row", 
+        on_select="rerun",
+        selection_mode="single-row",           
         column_config={
             "ID": None,              
             "photolink": st.column_config.LinkColumn("📸 Foto", display_text="Anschauen 🔗")
