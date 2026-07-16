@@ -37,7 +37,6 @@ if not results:
 else:
     rows = [format_item_row(item) for item in results]
     
-    # HIER IST DIE ÄNDERUNG: Tabelle klickbar machen und ID verstecken
     selection = st.dataframe(
         rows, 
         use_container_width=True, 
@@ -49,7 +48,6 @@ else:
         }
     )
 
-    # WENN EINE ZEILE ANGEKLICKT WIRD, DETAILS ANZEIGEN:
     if len(selection.selection.rows) > 0:
         selected_index = selection.selection.rows[0]
         selected_item = results[selected_index]
@@ -76,4 +74,4 @@ else:
                 st.markdown(f"**Kabel:** {selected_item.cabletype or '-'} ({float(selected_item.cablelengthmeter) if selected_item.cablelengthmeter else 0} m)")
             
             if selected_item.photolink:
-                st.markdown(f"[📸 Foto in Dropbox öffnen]({selected_item.photolink})")f
+                st.markdown(f"[📸 Foto in Dropbox öffnen]({selected_item.photolink})")
