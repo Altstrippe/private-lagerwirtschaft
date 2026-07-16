@@ -16,10 +16,6 @@ from app.services.item_service import search_items
 
 st.set_page_config(page_title="Suche", page_icon="🔎", layout="wide")
 
-if not require_login():
-    st.warning("Bitte zuerst anmelden.")
-    st.stop()
-
 st.title("Suche")
 
 query = st.text_input(
@@ -44,7 +40,7 @@ else:
     # HIER IST DIE ÄNDERUNG: Tabelle klickbar machen und ID verstecken
     selection = st.dataframe(
         rows, 
-        use_container_width=True, 
+        use_container_width=True,
         hide_index=True,
         on_select="rerun",           # <--- Das macht die Zeilen klickbar
         selection_mode="single_row", # <--- Man kann immer nur eine Zeile auswählen
@@ -81,4 +77,4 @@ else:
                 st.markdown(f"**Kabel:** {selected_item.cabletype or '-'} ({float(selected_item.cablelengthmeter) if selected_item.cablelengthmeter else 0} m)")
             
             if selected_item.photolink:
-                st.markdown(f"[📸 Foto in Dropbox öffnen]({selected_item.photolink})")
+                st.markdown(f"[📸 Foto in Dropbox öffnen]({selected_item.photolink})")f

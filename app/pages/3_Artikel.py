@@ -20,10 +20,6 @@ from app.services.location_service import list_locations
 
 st.set_page_config(page_title="Artikel", page_icon="📦", layout="wide")
 
-if not require_login():
-    st.warning("Bitte zuerst anmelden.")
-    st.stop()
-
 st.title("Artikel")
 
 with SessionLocal() as session:
