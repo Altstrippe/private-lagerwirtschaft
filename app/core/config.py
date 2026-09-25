@@ -1,9 +1,25 @@
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+from pydantic_settings import BaseSettings
 
+# --- 1. RÄUME-KONFIGURATION ---
 RAEUME = ["Halle", "Werkstatt", "EVA", "Honigraum"]
 
+# --- 2. KOMPATIBILITÄT FÜR TEMPLATE-IMPORTE ---
+class Settings(BaseSettings):
+    app_name: str = "Lagerverwaltung"
+    app_env: str = "production"
+
+    class Config:
+        extra = "ignore"
+
+@st.cache_resource
+def get_settings() -> Settings:
+    """Kompatibilitätsfunktion für bestehende Template-Dateien."""
+    return Settings()
+
+# --- 3. GOOGLE SHEETS VERBINDUNG ---
 @st.cache_resource
 def get_spreadsheet():
     """Stellt die authentifizierte Verbindung zum Google Sheet her."""
