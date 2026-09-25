@@ -1,13 +1,12 @@
 streamlit==1.47.0
-sqlalchemy==2.0.41
-psycopg2-binary
-alembic==1.16.4
-psycopg[binary]==3.2.9
+pandas>=2.2.0
+gspread>=6.0.0
+google-auth>=2.29.0
 python-dotenv==1.1.1
-argon2-cffi==25.1.0
 pydantic==2.11.7
 pydantic-settings==2.10.1
 
+# Entwicklung & CI/Qualität
 pytest==8.4.1
 ruff==0.12.3
 black==25.1.0
