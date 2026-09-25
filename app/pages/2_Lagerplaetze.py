@@ -1,87 +1,52 @@
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 import streamlit as st
+import urllib.parse
+from app.core.config import RAEUME
+from app.services import lager_service
 
-from app.db.models import LocationType
-from app.db.session import SessionLocal
-from app.services.auth_service import require_login
-from app.services.location_service import create_location, list_locations
-from app.services.room_service import list_rooms
+st.set_page_config(page_title="Lagerplätze & QR-Etiketten", page_icon="🏷️", layout="wide")
 
-st.set_page_config(page_title="Lagerplaetze", page_icon="📍", layout="wide")
+st.title("🏷️ Stellplätze & QR-Etiketten drucken")
+st.caption("Erstelle QR-Codes für deine Regale und Schränke zum direkten Scannen vor Ort.")
 
-st.title("Lagerplaetze")
+col_raum, col_fach = st.columns(2)
 
-with SessionLocal() as session:
-    rooms = list_rooms(session)
-    locations = list_locations(session)
+with col_raum:
+    ausgewaehlter_raum = st.selectbox("1. Raum auswählen", RAEUME)
 
-room_options = {room.name: room.id for room in rooms}
+# Bereits vorhandene Fächer für den Raum laden
+vorhandene_faecher = lager_service.get_faecher_for_raum(ausgewaehlter_raum)
 
-with st.form("location_form", clear_on_submit=True):
-    st.subheader("Neuen Lagerplatz anlegen")
+with col_fach:
+    auswahl_modus = st.radio("Fach-Eingabe", ["Vorhandenes Fach wählen", "Neues Fach eingeben"], horizontal=True)
+    if auswahl_modus == "Vorhandenes Fach wählen" and vorhandene_faecher:
+        fach_nummer = st.selectbox("Fach / Schrank", vorhandene_faecher)
+    else:
+        fach_nummer = st.text_input("Fachnummer / Bezeichnung (z. B. Fach 26, Schrank A)", placeholder="26")
 
-    selected_room_name = st.selectbox("Raum", options=list(room_options.keys()))
-    selected_type = st.selectbox(
-        "Typ",
-        options=[LocationType.SCHRANK.value, LocationType.FACH.value],
-    )
-    label = st.text_input("Schranknummer oder Fachnummer")
-    note = st.text_area("Notiz", height=80)
+app_url = st.text_input(
+    "Adresse deiner Streamlit-App (aus der Browser-Adresszeile kopieren):",
+    placeholder="https://deine-lager-app.streamlit.app"
+)
 
-    submitted = st.form_submit_button("Speichern", use_container_width=True)
-
-    if submitted:
-        if not label.strip():
-            st.error("Bitte eine Schranknummer oder Fachnummer eingeben.")
-        else:
-            with SessionLocal() as session:
-                try:
-                    create_location(
-                        session=session,
-                        roomid=room_options[selected_room_name],
-                        locationtype=LocationType(selected_type),
-                        label=label.strip(),
-                        note=note.strip() or None,
-                    )
-                    st.success("Lagerplatz wurde angelegt.")
-                    st.rerun()
-                except ValueError as exc:
-                    st.error(str(exc))
-
-st.divider()
-st.subheader("Vorhandene Lagerplaetze")
-
-if not locations:
-    st.info("Noch keine Lagerplaetze vorhanden.")
-else:
-    filter_room = st.selectbox(
-        "Nach Raum filtern",
-        options=["Alle"] + list(room_options.keys()),
-    )
-
-    filtered_locations = []
-    for location in locations:
-        room_name = location.room.name
-        if filter_room == "Alle" or room_name == filter_room:
-            filtered_locations.append(location)
-
-    rows = []
-    for location in filtered_locations:
-        rows.append(
-            {
-                "Raum": location.room.name,
-                "Typ": location.locationtype.value,
-                "Nummer": location.label,
-                "Notiz": location.note or "",
-            }
+st.write("")
+if st.button("QR-Code generieren", type="primary"):
+    if not fach_nummer.strip() or not app_url.strip():
+        st.warning("Bitte gib sowohl die App-Adresse als auch eine Fachnummer an.")
+    else:
+        ziel_link = lager_service.create_qr_link(
+            base_url=app_url.strip(),
+            raum=ausgewaehlter_raum,
+            fach=fach_nummer.strip()
         )
-
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+        
+        # QR-Code online generieren (300x300 px)
+        qr_api_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(ziel_link)}"
+        
+        st.divider()
+        col_img, col_info = st.columns([1, 2])
+        with col_img:
+            st.image(qr_api_url, caption=f"{ausgewaehlter_raum} - {fach_nummer}", width=220)
+        with col_info:
+            st.success(f"QR-Code für **{ausgewaehlter_raum} ➔ {fach_nummer}** erstellt!")
+            st.markdown(f"**Verknüpfter Direkt-Link:**\n`{ziel_link}`")
+            st.info("💡 **Druck-Tipp:** Rechtsklick auf das Bild ➔ *Grafik kopieren* oder *Bild speichern unter...* und mit deinem Etikettendrucker ausdrucken.")
