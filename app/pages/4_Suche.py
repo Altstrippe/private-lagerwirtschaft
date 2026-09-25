@@ -1,77 +1,103 @@
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 import streamlit as st
+from app.core.config import RAEUME
+from app.services import lager_service
 
-from app.core.formatters import format_item_row
-from app.db.session import SessionLocal
-from app.services.auth_service import require_login
-from app.services.item_service import search_items
+st.set_page_config(page_title="Suche & Fach-Inspektor", page_icon="🔍", layout="wide")
 
-st.set_page_config(page_title="Suche", page_icon="🔎", layout="wide")
+# URL-Parameter für QR-Code-Scans auslesen
+params = st.query_params
+qr_raum = params.get("raum", None)
+qr_fach = params.get("fach", None)
 
-st.title("Suche")
+# Wenn per QR-Code geöffnet, Fach-Inspektor als Standard wählen
+ist_qr_aufruf = bool(qr_raum and qr_fach)
 
-query = st.text_input(
-    "Suchbegriff",
-    placeholder="z.B. Schraub, Werkstatt, 101, CAT7",
+st.title("🔍 Lager-Auskunft")
+
+ansicht = st.radio(
+    "Suchmodus", 
+    ["📍 Fach-Inspektor (Exakter Stellplatz)", "🔎 Volltextsuche (Über alles)"], 
+    horizontal=True,
+    index=0 if ist_qr_aufruf else 1
 )
 
-if not query.strip():
-    st.info("Bitte einen Suchbegriff eingeben.")
-    st.stop()
+st.divider()
 
-with SessionLocal() as session:
-    results = search_items(session, query)
+# ==========================================
+# MODUS 1: FACH-INSPEKTOR
+# ==========================================
+if ansicht.startswith("📍"):
+    st.subheader("Fachinhalt prüfen")
+    st.caption("Wähle einen Raum und ein Fach aus, um den exakten Inhalt ohne Streuverluste zu sehen.")
 
-st.subheader("Treffer")
+    col1, col2 = st.columns(2)
+    with col1:
+        default_raum_idx = RAEUME.index(qr_raum) if (qr_raum and qr_raum in RAEUME) else 0
+        ausgewaehlter_raum = st.selectbox("1. Raum", RAEUME, index=default_raum_idx)
 
-if not results:
-    st.warning("Keine Treffer gefunden.")
+    # Alle tatsächlich existierenden Fächer im Raum aus dem Service abrufen
+    vorhandene_faecher = lager_service.get_faecher_for_raum(ausgewaehlter_raum)
+
+    with col2:
+        default_fach_idx = 0
+        if qr_fach and str(qr_fach) in vorhandene_faecher:
+            default_fach_idx = vorhandene_faecher.index(str(qr_fach))
+            
+        ausgewaehltes_fach = st.selectbox(
+            "2. Fach- oder Schranknummer", 
+            vorhandene_faecher if vorhandene_faecher else ["(Keine Fächer eingetragen)"],
+            index=default_fach_idx
+        )
+
+    if ausgewaehltes_fach and ausgewaehltes_fach != "(Keine Fächer eingetragen)":
+        inhalt = lager_service.get_fach_inhalt(ausgewaehlter_raum, ausgewaehltes_fach)
+        
+        st.write("")
+        st.markdown(f"### Aktueller Inhalt: **{ausgewaehlter_raum} ➔ {ausgewaehltes_fach}**")
+        
+        if inhalt:
+            for item in inhalt:
+                box_hinweis = f"📦 In: **{item['box']}**" if item['box'] else "Frei im Fach (keine Box)"
+                st.success(f"**{item['name']}** ({item['kategorie']}) | {box_hinweis}")
+        else:
+            st.info("Dieses Fach ist laut Datenbank derzeit leer.")
+
+# ==========================================
+# MODUS 2: VOLLTEXTSUCHE
+# ==========================================
 else:
-    rows = [format_item_row(item) for item in results]
+    st.subheader("Globale Suche über alle Räume")
     
-    selection = st.dataframe(
-        rows, 
-        use_container_width=True, 
-        hide_index=True,
-        on_select="rerun",
-        column_config={
-            "ID": None,
-            "photolink": st.column_config.LinkColumn("📸 Foto", display_text="Anschauen 🔗")
-        }
+    col_suche, col_filter = st.columns([2, 1])
+    with col_suche:
+        suchbegriff = st.text_input("Gegenstand, Kabel oder Werkzeug suchen...", placeholder="z. B. Bohrer, 26, NYM")
+    with col_filter:
+        raum_filter = st.selectbox("Auf Raum eingrenzen", ["Alle"] + RAEUME)
+
+    ergebnisse = lager_service.get_all_articles_joined(
+        search_term=suchbegriff.strip() if suchbegriff else None,
+        raum_filter=raum_filter
     )
 
-    if len(selection.selection.rows) > 0:
-        selected_index = selection.selection.rows[0]
-        selected_item = results[selected_index]
-
-        st.markdown("---")
-        st.subheader(f"🏷️ Details: {selected_item.name}")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**Lagerort:** {selected_item.location.room.name} | {selected_item.location.locationtype.value} | {selected_item.location.label}")
-            st.markdown(f"**Menge:** {float(selected_item.quantity)} {selected_item.unit or ''}")
-            if selected_item.expirydate:
-                st.markdown(f"**Haltbarkeit:** {selected_item.expirydate.isoformat()}")
-            if selected_item.note:
-                st.info(f"**Notiz:** {selected_item.note}")
-
-        with col2:
-            st.markdown(f"**Werkzeug:** {'Ja' if selected_item.is_tool else 'Nein'}")
-            st.markdown(f"**Haushalt:** {'Ja' if selected_item.ishousehold else 'Nein'}")
-            st.markdown(f"**Ausleihbar:** {'Ja' if selected_item.isloanable else 'Nein'}")
-            st.markdown(f"**Ausgeliehen:** {'Ja' if selected_item.isonloan else 'Nein'}")
+    st.write("")
+    if ergebnisse:
+        st.markdown(f"**Gefundene Einträge:** {len(ergebnisse)}")
+        for art in ergebnisse:
+            box_text = f" (Box: {art['box']})" if art['box'] else ""
+            foto_status = "📸 Foto" if art['hat_foto'] else "Kein Foto"
             
-            if selected_item.cabletype or selected_item.cablelengthmeter:
-                st.markdown(f"**Kabel:** {selected_item.cabletype or '-'} ({float(selected_item.cablelengthmeter) if selected_item.cablelengthmeter else 0} m)")
-            
-            if selected_item.photolink:
-                st.markdown(f"[📸 Foto in Dropbox öffnen]({selected_item.photolink})")
+            # Zusätzliche Details abhängig von der Kategorie
+            extra_info = ""
+            if art['bestand'] is not None:
+                extra_info += f" | Bestand: **{art['bestand']} Stk.**"
+            if art['vermietung']:
+                extra_info += f" | 🔴 **{art['vermietung']}**"
+            elif art['kategorie'] in ["Werkzeug", "Kabel"]:
+                extra_info += " | 🟢 **Verfügbar**"
+
+            st.info(
+                f"**{art['name']}** ({art['kategorie']}) ➔ **{art['raum']}** ({art['typ']} {art['nummer']}{box_text}) "
+                f"| {foto_status}{extra_info}"
+            )
+    else:
+        st.warning("Keine passenden Artikel gefunden.")
