@@ -1,26 +1,18 @@
-from functools import lru_cache
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+RAEUME = ["Halle", "Werkstatt", "EVA", "Honigraum"]
 
-
-class Settings(BaseSettings):
-    app_env: str = Field(default="local", alias="APP_ENV")
-    app_title: str = Field(default="Private Lagerwirtschaft", alias="APP_TITLE")
-    database_url: str = Field(alias="DATABASE_URL")
-
-    app_username: str = Field(alias="APP_USERNAME")
-    app_password: str = Field(alias="APP_PASSWORD")
-    app_secret_key: str = Field(alias="APP_SECRET_KEY")
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()
+@st.cache_resource
+def get_spreadsheet():
+    """Stellt die authentifizierte Verbindung zum Google Sheet her."""
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    sheet_url = st.secrets["spreadsheet_url"]
+    return client.open_by_url(sheet_url)
