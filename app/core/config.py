@@ -3,10 +3,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 from pydantic_settings import BaseSettings
 
-# --- 1. RÄUME-KONFIGURATION ---
 RAEUME = ["Halle", "Werkstatt", "EVA", "Honigraum"]
 
-# --- 2. KOMPATIBILITÄT FÜR TEMPLATE-IMPORTE ---
 class Settings(BaseSettings):
     app_name: str = "Lagerverwaltung"
     app_env: str = "production"
@@ -16,13 +14,20 @@ class Settings(BaseSettings):
 
 @st.cache_resource
 def get_settings() -> Settings:
-    """Kompatibilitätsfunktion für bestehende Template-Dateien."""
     return Settings()
 
-# --- 3. GOOGLE SHEETS VERBINDUNG ---
 @st.cache_resource
 def get_spreadsheet():
-    """Stellt die authentifizierte Verbindung zum Google Sheet her."""
+    """Stellt die Verbindung her oder bricht mit klarer Meldung im UI ab."""
+    if "gcp_service_account" not in st.secrets:
+        st.error("⚠️ Secret '[gcp_service_account]' wurde in den App-Settings nicht gefunden.")
+        st.info("Bitte trage die Google-Zertifikatsdaten in den Streamlit Cloud Secrets ein.")
+        st.stop()
+
+    if "spreadsheet_url" not in st.secrets:
+        st.error("⚠️ Secret 'spreadsheet_url' fehlt in den App-Settings.")
+        st.stop()
+
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
@@ -30,5 +35,4 @@ def get_spreadsheet():
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
-    sheet_url = st.secrets["spreadsheet_url"]
-    return client.open_by_url(sheet_url)
+    return client.open_by_url(st.secrets["spreadsheet_url"])
