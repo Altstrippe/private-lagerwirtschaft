@@ -1,69 +1,51 @@
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 import streamlit as st
+from app.services import lager_service
 
-from app.db.session import SessionLocal
-from app.services.auth_service import require_login
-from app.services.dashboard_service import get_dashboard_stats
+st.set_page_config(
+    page_title="Lager-Dashboard",
+    page_icon="📊",
+    layout="wide"
+)
 
-st.set_page_config(page_title="Dashboard", page_icon="🏠", layout="wide")
+st.title("📊 Lager-Cockpit")
+st.caption("Echtzeit-Übersicht deiner Bestände und aktuellen Ausleihen")
 
-st.title("Dashboard")
-st.caption("Schnellueberblick ueber deine private Lagerwirtschaft")
-
-with SessionLocal() as session:
-    stats = get_dashboard_stats(session)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Lagerplaetze", stats["location_count"])
-
-with col2:
-    st.metric("Artikelpositionen", stats["item_count"])
-
-with col3:
-    st.metric("Offene Ausleihen", stats["open_loan_count"])
-
-with col4:
-    st.metric("Artikel mit Haltbarkeit", stats["expiry_count"])
+# Kennzahlen direkt aus Neon abrufen
+try:
+    metrics = lager_service.get_dashboard_metrics()
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Gesamtzahl Artikel", f"{metrics['gesamt_artikel']} Stk.")
+    col2.metric("Aktuell verliehen", f"{metrics['aktive_leihe']} Gegenstände", delta_color="inverse")
+    col3.metric("Erfasste Lagerorte", metrics["gesamt_orte"])
+except Exception as e:
+    st.error(f"Fehler beim Laden der Kennzahlen: {e}")
 
 st.divider()
 
-st.subheader("Schnellzugriff")
+# Zwei Spalten: Aktive Ausleihen & Schnellnavigation
+col_leihe, col_raeume = st.columns([3, 2])
 
-nav_col1, nav_col2, nav_col3 = st.columns(3)
+with col_leihe:
+    st.subheader("🔴 Aktuell verliehene Werkzeuge & Kabel")
+    try:
+        aktive_leihen = lager_service.get_aktive_ausleihen()
+        if aktive_leihen:
+            for leihe in aktive_leihen:
+                st.warning(
+                    f"**{leihe['item_name']}** ➔ Verliehen an **{leihe['person']}** (seit {leihe['datum_ausgabe']})"
+                )
+        else:
+            st.success("🟢 Alle Werkzeuge und Kabel sind im Lager verfügbar!")
+    except Exception as e:
+        st.info("Noch keine Ausleihen registriert.")
 
-with nav_col1:
-    st.page_link("pages/2_Lagerplaetze.py", label="Zu den Lagerplaetzen", icon="📍")
-
-with nav_col2:
-    st.page_link("pages/4_Suche.py", label="Zur Suche", icon="🔎")
-
-with nav_col3:
-    st.page_link("pages/6_Bestand.py", label="Zum Bestand", icon="📋")
-
-st.divider()
-
-st.subheader("Hinweise")
-
-hint_col1, hint_col2 = st.columns(2)
-
-with hint_col1:
-    st.info(
-        "Neue Lagerplaetze zuerst unter 'Lagerplaetze' anlegen, "
-        "danach Artikel zuordnen."
-    )
-
-with hint_col2:
-    st.info(
-        "Die globale Suche findet Teiltreffer in Artikelnamen, Raum, "
-        "Schranknummer, Fachnummer und Kabeltyp."
-    )
+with col_raeume:
+    st.subheader("📍 Räume im System")
+    st.markdown("""
+    * **Halle:** Großgeräte, Maschinen & Baumaterial
+    * **Werkstatt:** Handwerkzeuge, Messgeräte & Kleinteile
+    * **EVA:** Elektroinstallation, Verteiler & Zubehör
+    * **Honigraum:** Imkerei-Equipment, Gläser & Zubehör
+    """)
+    st.info("💡 **Tipp:** Wechsle auf **`2_Lagerplaetze`**, um neue QR-Codes für deine Regale und Schränke auszudrucken.")
