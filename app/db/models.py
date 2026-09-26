@@ -9,7 +9,6 @@ import uuid
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.db.models import Item, Loan, Location, LocationType, Room
 from app.db.session import SessionLocal
 
 
