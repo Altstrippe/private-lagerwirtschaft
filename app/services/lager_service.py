@@ -1,178 +1,366 @@
-from datetime import date
-import pandas as pd
-import urllib.parse
-from app.db.sheets_client import fetch_table, insert_row, update_cell_value
+from __future__ import annotations
 
-# --- HILFSFUNKTIONEN ---
-def get_next_id(df: pd.DataFrame) -> int:
-    if df.empty or 'ID' not in df.columns:
-        return 1
-    ids = pd.to_numeric(df['ID'], errors='coerce').dropna()
-    return 1 if ids.empty else int(ids.max() + 1)
+from contextlib import contextmanager
+from datetime import date
+from typing import Generator
+import urllib.parse
+import uuid
+
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, joinedload
+
+from app.db.models import Item, Loan, Location, LocationType, Room
+from app.db.session import SessionLocal
+
+
+# --- SESSION HELFER ---
+@contextmanager
+def get_db_session() -> Generator[Session, None, None]:
+    """Kontext-Manager für sichere Transaktionen."""
+    session: Session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
 
 # --- 1. DASHBOARD-KENNZAHLEN ---
 def get_dashboard_metrics() -> dict:
-    df_art = fetch_table("artikel")
-    df_verm = fetch_table("vermietungen")
-    df_hist = fetch_table("lager_historie")
-    
-    gesamt_artikel = len(df_art) if not df_art.empty else 0
-    
-    aktive_leihe = 0
-    if not df_verm.empty and "Status" in df_verm.columns:
-        aktive_leihe = len(df_verm[df_verm["Status"] == "Ausgeliehen"])
-        
-    gesamt_bewegungen = len(df_hist) if not df_hist.empty else 0
-    
-    return {
-        "gesamt_artikel": gesamt_artikel,
-        "aktive_leihe": aktive_leihe,
-        "bewegungen": gesamt_bewegungen
-    }
+    with get_db_session() as db:
+        gesamt_artikel = db.scalar(select(func.count(Item.id))) or 0
+        aktive_leihe = (
+            db.scalar(select(func.count(Loan.id)).where(Loan.isreturned.is_(False)))
+            or 0
+        )
+        gesamt_orte = db.scalar(select(func.count(Location.id))) or 0
 
-# --- 2. LAGERPLÄTZE & FACH-INSPEKTOR ---
-def get_faecher_for_raum(raum: str) -> list[str]:
-    df_ort = fetch_table("orte")
-    if df_ort.empty:
-        return []
-    return sorted(list(set(df_ort[df_ort["Raum"] == raum]["Nummer"].astype(str).tolist())))
+        return {
+            "gesamt_artikel": int(gesamt_artikel),
+            "aktive_leihe": int(aktive_leihe),
+            "gesamt_orte": int(gesamt_orte),
+        }
 
-def get_fach_inhalt(raum: str, fach_nummer: str) -> list[dict]:
-    df_ort = fetch_table("orte")
-    df_art = fetch_table("artikel")
-    if df_ort.empty or df_art.empty:
-        return []
-    
-    relevante_orte = df_ort[(df_ort["Raum"] == raum) & (df_ort["Nummer"].astype(str) == str(fach_nummer))]
-    ort_ids = relevante_orte["ID"].tolist()
-    artikel = df_art[df_art["Ort_ID"].isin(ort_ids)]
-    
-    items = []
-    for _, art in artikel.iterrows():
-        ort = relevante_orte[relevante_orte["ID"] == art["Ort_ID"]].iloc[0]
-        items.append({
-            "name": art["Name"],
-            "kategorie": art["Kategorie"],
-            "box": ort["Box"]
-        })
-    return items
+
+# --- 2. RÄUME & STELLPLÄTZE ---
+def ensure_default_rooms(room_names: list[str]) -> None:
+    """Stellt sicher, dass die 4 Standardräume in der Datenbank existieren."""
+    with get_db_session() as db:
+        for name in room_names:
+            stmt = select(Room).where(Room.name == name)
+            if not db.scalar(stmt):
+                db.add(Room(name=name))
+
+
+def get_faecher_for_raum(room_name: str) -> list[str]:
+    """Liefert alle Fach- und Schranknummern für einen Raum zurück."""
+    with get_db_session() as db:
+        stmt = (
+            select(Location.label)
+            .join(Room)
+            .where(Room.name == room_name)
+            .order_by(Location.label)
+        )
+        return list(db.scalars(stmt).all())
+
+
+def get_fach_inhalt(room_name: str, label: str) -> list[dict]:
+    """Ermittelt den exakten Inhalt für Fach-Inspektor und QR-Scan."""
+    with get_db_session() as db:
+        stmt = (
+            select(Item)
+            .join(Location)
+            .join(Room)
+            .where(Room.name == room_name, Location.label == label)
+            .options(joinedload(Item.location))
+        )
+        items = db.scalars(stmt).all()
+
+        results = []
+        for it in items:
+            box_info = it.location.note if it.location and it.location.note else ""
+            kategorie = (
+                "Werkzeug"
+                if it.is_tool
+                else ("Kabel" if it.cabletype else "Lagerwirtschaft")
+            )
+            results.append(
+                {
+                    "id": str(it.id),
+                    "name": it.name,
+                    "quantity": float(it.quantity),
+                    "unit": it.unit or "Stk.",
+                    "kategorie": kategorie,
+                    "box": box_info,
+                    "isonloan": it.isonloan,
+                    "photolink": it.photolink,
+                }
+            )
+        return results
+
 
 def create_qr_link(base_url: str, raum: str, fach: str) -> str:
+    """Erzeugt den Tiefenlink für Regalschilder."""
     params = urllib.parse.urlencode({"raum": raum, "fach": fach})
     return f"{base_url.rstrip('/')}/4_Suche/?{params}"
 
-# --- 3. ARTIKEL ANLEGEN ---
-def add_artikel(raum: str, typ: str, nummer: str, box: str, name: str, kategorie: str, hat_foto: bool) -> None:
-    df_ort = fetch_table("orte")
-    next_ort_id = get_next_id(df_ort)
-    insert_row("orte", [next_ort_id, raum, typ, nummer, box])
 
-    df_art = fetch_table("artikel")
-    next_art_id = get_next_id(df_art)
-    insert_row("artikel", [next_art_id, name, kategorie, 1 if hat_foto else 0, next_ort_id])
+# --- 3. ARTIKEL ANLEGEN & ZUORDNEN ---
+def add_artikel(
+    raum: str,
+    typ: str,
+    nummer: str,
+    box: str,
+    name: str,
+    kategorie: str,
+    quantity: float = 0.0,
+    unit: str = "Stk.",
+    cabletype: str | None = None,
+    cablelengthmeter: float | None = None,
+    hat_foto: bool = False,
+    photolink: str | None = None,
+) -> None:
+    with get_db_session() as db:
+        # 1. Raum abrufen oder anlegen
+        room = db.scalar(select(Room).where(Room.name == raum))
+        if not room:
+            room = Room(name=raum)
+            db.add(room)
+            db.flush()
 
-# --- 4. SUCHE & BESTAND ---
-def get_all_articles_joined(search_term: str = None, raum_filter: str = "Alle") -> list[dict]:
-    df_art = fetch_table("artikel")
-    df_ort = fetch_table("orte")
-    df_hist = fetch_table("lager_historie")
-    df_verm = fetch_table("vermietungen")
+        # 2. Location ermitteln oder neu zuweisen
+        loc_enum = LocationType.FACH if typ.lower() == "regal" else LocationType.SCHRANK
+        loc = db.scalar(
+            select(Location).where(
+                Location.roomid == room.id,
+                Location.locationtype == loc_enum,
+                Location.label == nummer,
+            )
+        )
 
-    if df_art.empty or df_ort.empty:
-        return []
+        if not loc:
+            loc = Location(
+                roomid=room.id,
+                locationtype=loc_enum,
+                label=nummer,
+                note=box if box else None,
+            )
+            db.add(loc)
+            db.flush()
+        elif box and not loc.note:
+            loc.note = box
 
-    merged = pd.merge(df_art, df_ort, left_on="Ort_ID", right_on="ID", suffixes=('', '_ort'))
-    
-    if search_term:
-        merged = merged[merged['Name'].astype(str).str.contains(search_term, case=False, na=False)]
-    if raum_filter != "Alle":
-        merged = merged[merged['Raum'] == raum_filter]
+        # 3. Artikel flags setzen
+        is_tool = kategorie == "Werkzeug"
+        is_loanable = kategorie in ["Werkzeug", "Kabel"]
+        photo_val = photolink if photolink else ("vorhanden" if hat_foto else None)
 
-    results = []
-    for _, row in merged.iterrows():
-        a_id = row['ID']
-        bestand = None
-        if row['Kategorie'] == "Lagerwirtschaft" and not df_hist.empty:
-            sub = df_hist[df_hist['Artikel_ID'] == a_id]
-            zugang = sub[sub['Typ'] == 'Zugang']['Menge'].astype(int).sum()
-            abgang = sub[sub['Typ'] == 'Abgang']['Menge'].astype(int).sum()
-            bestand = zugang - abgang
+        new_item = Item(
+            locationid=loc.id,
+            name=name,
+            quantity=quantity,
+            unit=unit,
+            is_tool=is_tool,
+            isloanable=is_loanable,
+            cabletype=cabletype if kategorie == "Kabel" else None,
+            cablelengthmeter=cablelengthmeter if kategorie == "Kabel" else None,
+            photolink=photo_val,
+        )
+        db.add(new_item)
 
-        vermietung = None
-        if row['Kategorie'] in ["Werkzeug", "Kabel"] and not df_verm.empty:
-            v_akt = df_verm[(df_verm['Artikel_ID'] == a_id) & (df_verm['Status'] == 'Ausgeliehen')]
-            if not v_akt.empty:
-                vermietung = f"Vermietet an {v_akt.iloc[0]['Person']} seit {v_akt.iloc[0]['Datum_Ausgabe']}"
 
-        results.append({
-            "id": a_id,
-            "name": row['Name'],
-            "kategorie": row['Kategorie'],
-            "raum": row['Raum'],
-            "typ": row['Typ'],
-            "nummer": row['Nummer'],
-            "box": row['Box'],
-            "hat_foto": bool(row['Hat_Foto']),
-            "bestand": bestand,
-            "vermietung": vermietung
-        })
-    return results
+# --- 4. SUCHE ÜBER ALLES ---
+def get_all_articles_joined(
+    search_term: str | None = None, raum_filter: str = "Alle"
+) -> list[dict]:
+    with get_db_session() as db:
+        stmt = (
+            select(Item)
+            .join(Location)
+            .join(Room)
+            .options(joinedload(Item.location).joinedload(Location.room))
+        )
 
-# --- 5. LAGERWIRTSCHAFT (ZU- / ABGANG) ---
-def get_lagerwirtschaft_artikel() -> dict[str, int]:
-    df_art = fetch_table("artikel")
-    if df_art.empty:
-        return {}
-    sub = df_art[df_art["Kategorie"] == "Lagerwirtschaft"]
-    return {row["Name"]: row["ID"] for _, row in sub.iterrows()}
+        if search_term:
+            stmt = stmt.where(
+                or_(
+                    Item.name.ilike(f"%{search_term}%"),
+                    Location.label.ilike(f"%{search_term}%"),
+                    Item.cabletype.ilike(f"%{search_term}%"),
+                )
+            )
 
-def buche_lagerbewegung(artikel_id: int, bewegungstyp: str, menge: int, buchungsdatum: date) -> None:
-    df_hist = fetch_table("lager_historie")
-    next_id = get_next_id(df_hist)
-    insert_row("lager_historie", [next_id, artikel_id, bewegungstyp, int(menge), str(buchungsdatum)])
+        if raum_filter != "Alle":
+            stmt = stmt.where(Room.name == raum_filter)
 
-# --- 6. AUSLEIHE & VERMIETUNG ---
-def get_leihbare_artikel() -> dict[str, int]:
-    df_art = fetch_table("artikel")
-    if df_art.empty:
-        return {}
-    sub = df_art[df_art["Kategorie"].isin(["Werkzeug", "Kabel"])]
-    return {row["Name"]: row["ID"] for _, row in sub.iterrows()}
+        items = db.scalars(stmt).all()
 
-def leihe_artikel_aus(artikel_id: int, person: str, ausgabedatum: date) -> tuple[bool, str]:
-    df_verm = fetch_table("vermietungen")
-    if not df_verm.empty:
-        schon_verliehen = not df_verm[(df_verm['Artikel_ID'] == artikel_id) & (df_verm['Status'] == 'Ausgeliehen')].empty
-        if schon_verliehen:
-            return False, "Dieser Artikel ist laut System bereits verliehen!"
-            
-    next_id = get_next_id(df_verm)
-    insert_row("vermietungen", [next_id, artikel_id, person, str(ausgabedatum), "", "Ausgeliehen"])
-    return True, f"Erfolgreich an {person} ausgegeben."
+        results = []
+        for it in items:
+            loc = it.location
+            room_name = loc.room.name if loc and loc.room else "Unbekannt"
+            loc_label = loc.label if loc else "-"
+            loc_typ = loc.locationtype.value.capitalize() if loc else "-"
+            box = loc.note if loc and loc.note else ""
+
+            kategorie = (
+                "Werkzeug"
+                if it.is_tool
+                else ("Kabel" if it.cabletype else "Lagerwirtschaft")
+            )
+
+            # Letzten aktiven Verleihstatus ermitteln falls verliehen
+            verleih_info = None
+            if it.isonloan:
+                loan_stmt = (
+                    select(Loan)
+                    .where(Loan.itemid == it.id, Loan.isreturned.is_(False))
+                    .order_by(Loan.createdat.desc())
+                )
+                akt_loan = db.scalar(loan_stmt)
+                if akt_loan:
+                    verleih_info = f"Vermietet an {akt_loan.borrowername} seit {akt_loan.loandate.strftime('%d.%m.%Y')}"
+
+            results.append(
+                {
+                    "id": str(it.id),
+                    "name": it.name,
+                    "kategorie": kategorie,
+                    "raum": room_name,
+                    "typ": loc_typ,
+                    "nummer": loc_label,
+                    "box": box,
+                    "quantity": float(it.quantity),
+                    "unit": it.unit or "Stk.",
+                    "hat_foto": bool(it.photolink),
+                    "photolink": it.photolink,
+                    "isonloan": it.isonloan,
+                    "vermietung": verleih_info,
+                }
+            )
+        return results
+
+
+# --- 5. LAGERWIRTSCHAFT (BESTAND ZU- / ABGANG) ---
+def get_lagerwirtschaft_artikel() -> list[dict]:
+    with get_db_session() as db:
+        stmt = (
+            select(Item)
+            .where(Item.is_tool.is_(False), Item.cabletype.is_(None))
+            .order_by(Item.name)
+        )
+        items = db.scalars(stmt).all()
+        return [
+            {
+                "id": str(it.id),
+                "name": it.name,
+                "quantity": float(it.quantity),
+                "unit": it.unit or "Stk.",
+            }
+            for it in items
+        ]
+
+
+def buche_lagerbewegung(
+    item_id_str: str, typ: str, menge: float, datum: date
+) -> float:
+    with get_db_session() as db:
+        item = db.get(Item, uuid.UUID(item_id_str))
+        if not item:
+            raise ValueError("Artikel nicht gefunden.")
+
+        aktuelle_menge = float(item.quantity)
+        if typ == "Zugang":
+            neue_menge = aktuelle_menge + menge
+        else:
+            if aktuelle_menge < menge:
+                raise ValueError(
+                    f"Nicht genügend Bestand! Vorhanden: {aktuelle_menge}"
+                )
+            neue_menge = aktuelle_menge - menge
+
+        item.quantity = neue_menge
+        return neue_menge
+
+
+# --- 6. AUSLEIHE & VERMIETUNG (WERKZEUG / KABEL) ---
+def get_leihbare_artikel() -> list[dict]:
+    with get_db_session() as db:
+        stmt = (
+            select(Item)
+            .where(or_(Item.is_tool.is_(True), Item.isloanable.is_(True)))
+            .order_by(Item.name)
+        )
+        items = db.scalars(stmt).all()
+        return [
+            {
+                "id": str(it.id),
+                "name": it.name,
+                "isonloan": it.isonloan,
+                "kategorie": "Werkzeug" if it.is_tool else "Kabel",
+            }
+            for it in items
+        ]
+
+
+def leihe_artikel_aus(
+    item_id_str: str, person: str, ausgabedatum: date
+) -> tuple[bool, str]:
+    with get_db_session() as db:
+        item = db.get(Item, uuid.UUID(item_id_str))
+        if not item:
+            return False, "Artikel nicht gefunden."
+
+        if item.isonloan:
+            return False, f"'{item.name}' ist aktuell bereits ausgeliehen!"
+
+        new_loan = Loan(
+            itemid=item.id,
+            borrowername=person.strip(),
+            loandate=ausgabedatum,
+            isreturned=False,
+        )
+        item.isonloan = True
+        db.add(new_loan)
+        return True, f"'{item.name}' erfolgreich an {person} ausgegeben."
+
 
 def get_aktive_ausleihen() -> list[dict]:
-    df_verm = fetch_table("vermietungen")
-    df_art = fetch_table("artikel")
-    if df_verm.empty or df_art.empty:
-        return []
-    
-    offene = df_verm[df_verm['Status'] == 'Ausgeliehen']
-    if offene.empty:
-        return []
-        
-    merged = pd.merge(offene, df_art, left_on="Artikel_ID", right_on="ID", suffixes=('_v', '_a'))
-    return [
-        {
-            "id": row["ID_v"],
-            "name": row["Name"],
-            "person": row["Person"],
-            "datum_ausgabe": row["Datum_Ausgabe"]
-        }
-        for _, row in merged.iterrows()
-    ]
+    with get_db_session() as db:
+        stmt = (
+            select(Loan)
+            .where(Loan.isreturned.is_(False))
+            .options(joinedload(Loan.item))
+            .order_by(Loan.loandate.desc())
+        )
+        loans = db.scalars(stmt).all()
+        return [
+            {
+                "loan_id": str(lo.id),
+                "item_name": lo.item.name,
+                "person": lo.borrowername,
+                "datum_ausgabe": lo.loandate.strftime("%d.%m.%Y"),
+            }
+            for lo in loans
+        ]
 
-def nimm_artikel_zurueck(vermietung_id: int, rueckgabedatum: date) -> None:
-    df_verm = fetch_table("vermietungen")
-    row_idx = df_verm[df_verm['ID'] == vermietung_id].index[0] + 2
-    update_cell_value("vermietungen", row_idx, 5, str(rueckgabedatum))
-    update_cell_value("vermietungen", row_idx, 6, "Zurückgegeben")
+
+def nimm_artikel_zurueck(loan_id_str: str, rueckgabedatum: date) -> str:
+    with get_db_session() as db:
+        loan = db.get(Loan, uuid.UUID(loan_id_str))
+        if not loan:
+            raise ValueError("Ausleihvorgang nicht gefunden.")
+
+        loan.returndate = rueckgabedatum
+        loan.isreturned = True
+
+        if loan.item:
+            loan.item.isonloan = False
+            item_name = loan.item.name
+        else:
+            item_name = "Artikel"
+
+        return f"'{item_name}' wurde erfolgreich zurückgebucht."
