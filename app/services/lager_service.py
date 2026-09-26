@@ -153,7 +153,7 @@ def add_artikel(
         elif box and not loc.note:
             loc.note = box
 
-        # 3. Artikel flags setzen
+        # 3. Artikel-Flags setzen
         is_tool = kategorie == "Werkzeug"
         is_loanable = kategorie in ["Werkzeug", "Kabel"]
         photo_val = photolink if photolink else ("vorhanden" if hat_foto else None)
@@ -163,6 +163,7 @@ def add_artikel(
             name=name,
             quantity=quantity,
             unit=unit,
+            ishousehold=False,
             is_tool=is_tool,
             isloanable=is_loanable,
             cabletype=cabletype if kategorie == "Kabel" else None,
@@ -212,7 +213,7 @@ def get_all_articles_joined(
                 else ("Kabel" if it.cabletype else "Lagerwirtschaft")
             )
 
-            # Letzten aktiven Verleihstatus ermitteln falls verliehen
+            # Letzten aktiven Verleihstatus ermitteln
             verleih_info = None
             if it.isonloan:
                 loan_stmt = (
@@ -340,7 +341,7 @@ def get_aktive_ausleihen() -> list[dict]:
         return [
             {
                 "loan_id": str(lo.id),
-                "item_name": lo.item.name,
+                "item_name": lo.item.name if lo.item else "Unbekannt",
                 "person": lo.borrowername,
                 "datum_ausgabe": lo.loandate.strftime("%d.%m.%Y"),
             }
