@@ -145,6 +145,7 @@ def get_fach_inhalt(room_name: str, label: str) -> list[dict]:
                     "unit": it.unit or "Stk.",
                     "kategorie": kategorie,
                     "box": box_info,
+                    "note": it.note or "",
                     "isonloan": it.isonloan,
                     "photolink": it.photolink,
                 }
@@ -357,6 +358,7 @@ def delete_artikel(item_id_str: str) -> tuple[bool, str]:
         db.delete(item)
         return True, f"Artikel '{name}' wurde erfolgreich gelöscht."
 
+
 # --- 4. SUCHE ÜBER ALLES ---
 def get_all_articles_joined(
     search_term: str | None = None, raum_filter: str = "Alle"
@@ -417,6 +419,7 @@ def get_all_articles_joined(
                     "typ": loc_typ,
                     "nummer": loc_label,
                     "box": box,
+                    "note": it.note or "",
                     "quantity": float(it.quantity),
                     "bestand": float(it.quantity),
                     "unit": it.unit or "Stk.",
