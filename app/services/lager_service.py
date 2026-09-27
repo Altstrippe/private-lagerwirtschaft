@@ -46,67 +46,46 @@ def get_dashboard_metrics() -> dict:
 
 
 # --- 2. RÄUME & STELLPLÄTZE ---
-def ensure_default_rooms(room_names: list[str]) -> None:
-    """Stellt sicher, dass die 4 Standardräume in der Datenbank existieren."""
+def add_location(
+    room_name: str,
+    label: str,
+    location_type: str = "fach",
+    note: str | None = None
+) -> tuple[bool, str]:
+    """Legt ein neues Fach oder einen Schrank direkt in Neon PostgreSQL an."""
+    if not label or not label.strip():
+        return False, "Bitte eine Fach- oder Schrankbezeichnung eingeben."
+
+    clean_label = label.strip()
     with get_db_session() as db:
-        for name in room_names:
-            stmt = select(Room).where(Room.name == name)
-            if not db.scalar(stmt):
-                db.add(Room(name=name))
+        # Raum ermitteln oder anlegen
+        room = db.scalar(select(Room).where(Room.name == room_name))
+        if not room:
+            room = Room(name=room_name)
+            db.add(room)
+            db.flush()
 
+        loc_enum = LocationType.FACH if location_type.lower() == "fach" else LocationType.SCHRANK
 
-def get_faecher_for_raum(room_name: str) -> list[str]:
-    """Liefert alle Fach- und Schranknummern für einen Raum zurück."""
-    with get_db_session() as db:
-        stmt = (
-            select(Location.label)
-            .join(Room)
-            .where(Room.name == room_name)
-            .order_by(Location.label)
-        )
-        return list(db.scalars(stmt).all())
-
-
-def get_fach_inhalt(room_name: str, label: str) -> list[dict]:
-    """Ermittelt den exakten Inhalt für Fach-Inspektor und QR-Scan."""
-    with get_db_session() as db:
-        stmt = (
-            select(Item)
-            .join(Location)
-            .join(Room)
-            .where(Room.name == room_name, Location.label == label)
-            .options(joinedload(Item.location))
-        )
-        items = db.scalars(stmt).all()
-
-        results = []
-        for it in items:
-            box_info = it.location.note if it.location and it.location.note else ""
-            kategorie = (
-                "Werkzeug"
-                if it.is_tool
-                else ("Kabel" if it.cabletype else "Lagerwirtschaft")
+        # Prüfen, ob Fach im Raum schon existiert
+        existing = db.scalar(
+            select(Location).where(
+                Location.roomid == room.id,
+                Location.locationtype == loc_enum,
+                Location.label == clean_label,
             )
-            results.append(
-                {
-                    "id": str(it.id),
-                    "name": it.name,
-                    "quantity": float(it.quantity),
-                    "unit": it.unit or "Stk.",
-                    "kategorie": kategorie,
-                    "box": box_info,
-                    "isonloan": it.isonloan,
-                    "photolink": it.photolink,
-                }
-            )
-        return results
+        )
+        if existing:
+            return False, f"Das {loc_enum.value.capitalize()} '{clean_label}' existiert im Raum '{room_name}' bereits."
 
-
-def create_qr_link(base_url: str, raum: str, fach: str) -> str:
-    """Erzeugt den Tiefenlink für Regalschilder."""
-    params = urllib.parse.urlencode({"raum": raum, "fach": fach})
-    return f"{base_url.rstrip('/')}/4_Suche/?{params}"
-
+        new_loc = Location(
+            roomid=room.id,
+            locationtype=loc_enum,
+            label=clean_label,
+            note=note.strip() if note else None,
+        )
+        db.add(new_loc)
+        return True, f"{loc_enum.value.capitalize()} '{clean_label}' erfolgreich im Raum '{room_name}' gespeichert!"
 
 # --- 3. ARTIKEL ANLEGEN & ZUORDNEN ---
 def add_artikel(
