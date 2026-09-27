@@ -172,14 +172,17 @@ def add_artikel(
     cablelengthmeter: float | None = None,
     hat_foto: bool = False,
     photolink: str | None = None,
+    expirydate: date | None = None,
 ) -> None:
     with get_db_session() as db:
+        # 1. Raum abrufen oder anlegen
         room = db.scalar(select(Room).where(Room.name == raum))
         if not room:
             room = Room(name=raum)
             db.add(room)
             db.flush()
 
+        # 2. Location ermitteln oder neu zuweisen
         loc_enum = (
             LocationType.FACH if typ.lower() == "regal" else LocationType.SCHRANK
         )
@@ -203,20 +206,22 @@ def add_artikel(
         elif box and not loc.note:
             loc.note = box
 
+        # 3. Artikel-Flags setzen
         is_tool = kategorie == "Werkzeug"
         is_loanable = kategorie in ["Werkzeug", "Kabel"]
-        photo_val = photolink if photolink else ("vorhanden" if hat_foto else None)
+        photo_val = photolink.strip() if (hat_foto and photolink and photolink.strip()) else ("vorhanden" if hat_foto else None)
 
         new_item = Item(
             locationid=loc.id,
-            name=name,
+            name=name.strip(),
             quantity=quantity,
-            unit=unit,
+            unit=unit.strip() if unit else "Stk.",
             ishousehold=False,
             is_tool=is_tool,
             isloanable=is_loanable,
-            cabletype=cabletype if kategorie == "Kabel" else None,
+            cabletype=cabletype.strip() if (kategorie == "Kabel" and cabletype) else None,
             cablelengthmeter=cablelengthmeter if kategorie == "Kabel" else None,
+            expirydate=expirydate if kategorie == "Lagerwirtschaft" else None,
             photolink=photo_val,
         )
         db.add(new_item)
