@@ -158,7 +158,7 @@ def create_qr_link(base_url: str, raum: str, fach: str) -> str:
     return f"{base_url.rstrip('/')}/4_Suche/?{params}"
 
 
-# --- 3. ARTIKEL ANLEGEN & ZUORDNEN ---
+# --- 3. ARTIKEL ANLEGEN, BEARBEITEN & LÖSCHEN ---
 def add_artikel(
     raum: str,
     typ: str,
@@ -168,6 +168,7 @@ def add_artikel(
     kategorie: str,
     quantity: float = 0.0,
     unit: str = "Stk.",
+    note: str | None = None,
     cabletype: str | None = None,
     cablelengthmeter: float | None = None,
     hat_foto: bool = False,
@@ -175,22 +176,20 @@ def add_artikel(
     expirydate: date | None = None,
 ) -> None:
     with get_db_session() as db:
-        # 1. Raum abrufen oder anlegen
         room = db.scalar(select(Room).where(Room.name == raum))
         if not room:
             room = Room(name=raum)
             db.add(room)
             db.flush()
 
-        # 2. Location ermitteln oder neu zuweisen
         loc_enum = (
-            LocationType.FACH if typ.lower() == "regal" else LocationType.SCHRANK
+            LocationType.FACH if typ.lower() in ["regal", "fach"] else LocationType.SCHRANK
         )
         loc = db.scalar(
             select(Location).where(
                 Location.roomid == room.id,
                 Location.locationtype == loc_enum,
-                Location.label == nummer,
+                Location.label == nummer.strip(),
             )
         )
 
@@ -198,24 +197,28 @@ def add_artikel(
             loc = Location(
                 roomid=room.id,
                 locationtype=loc_enum,
-                label=nummer,
-                note=box if box else None,
+                label=nummer.strip(),
+                note=box.strip() if box else None,
             )
             db.add(loc)
             db.flush()
         elif box and not loc.note:
-            loc.note = box
+            loc.note = box.strip()
 
-        # 3. Artikel-Flags setzen
         is_tool = kategorie == "Werkzeug"
         is_loanable = kategorie in ["Werkzeug", "Kabel"]
-        photo_val = photolink.strip() if (hat_foto and photolink and photolink.strip()) else ("vorhanden" if hat_foto else None)
+        photo_val = (
+            photolink.strip()
+            if (hat_foto and photolink and photolink.strip())
+            else ("vorhanden" if hat_foto else None)
+        )
 
         new_item = Item(
             locationid=loc.id,
             name=name.strip(),
             quantity=quantity,
             unit=unit.strip() if unit else "Stk.",
+            note=note.strip() if note else None,
             ishousehold=False,
             is_tool=is_tool,
             isloanable=is_loanable,
@@ -226,6 +229,133 @@ def add_artikel(
         )
         db.add(new_item)
 
+
+def get_artikel_details(item_id_str: str) -> dict | None:
+    """Holt die vollständigen Detaildaten eines Artikels zur Bearbeitung."""
+    with get_db_session() as db:
+        item = db.get(
+            Item,
+            uuid.UUID(item_id_str),
+            options=[joinedload(Item.location).joinedload(Location.room)],
+        )
+        if not item:
+            return None
+
+        loc = item.location
+        return {
+            "id": str(item.id),
+            "name": item.name,
+            "raum": loc.room.name if loc and loc.room else "Halle",
+            "typ": loc.locationtype.value.capitalize() if loc else "Fach",
+            "nummer": loc.label if loc else "",
+            "box": loc.note if loc and loc.note else "",
+            "kategorie": (
+                "Werkzeug"
+                if item.is_tool
+                else ("Kabel" if item.cabletype else "Lagerwirtschaft")
+            ),
+            "quantity": float(item.quantity),
+            "unit": item.unit or "Stk.",
+            "note": item.note or "",
+            "expirydate": item.expirydate,
+            "cabletype": item.cabletype or "",
+            "cablelengthmeter": float(item.cablelengthmeter) if item.cablelengthmeter else 0.0,
+            "photolink": item.photolink or "",
+            "hat_foto": bool(item.photolink),
+            "isonloan": item.isonloan,
+        }
+
+
+def update_artikel(
+    item_id_str: str,
+    raum: str,
+    typ: str,
+    nummer: str,
+    box: str,
+    name: str,
+    kategorie: str,
+    quantity: float,
+    unit: str,
+    note: str | None = None,
+    cabletype: str | None = None,
+    cablelengthmeter: float | None = None,
+    expirydate: date | None = None,
+    hat_foto: bool = False,
+    photolink: str | None = None,
+) -> tuple[bool, str]:
+    """Aktualisiert alle Eigenschaften, Mengen oder versetzt den Artikel in ein anderes Fach."""
+    with get_db_session() as db:
+        item = db.get(Item, uuid.UUID(item_id_str))
+        if not item:
+            return False, "Artikel nicht gefunden."
+
+        room = db.scalar(select(Room).where(Room.name == raum))
+        if not room:
+            room = Room(name=raum)
+            db.add(room)
+            db.flush()
+
+        loc_enum = (
+            LocationType.FACH if typ.lower() in ["regal", "fach"] else LocationType.SCHRANK
+        )
+        loc = db.scalar(
+            select(Location).where(
+                Location.roomid == room.id,
+                Location.locationtype == loc_enum,
+                Location.label == nummer.strip(),
+            )
+        )
+        if not loc:
+            loc = Location(
+                roomid=room.id,
+                locationtype=loc_enum,
+                label=nummer.strip(),
+                note=box.strip() if box else None,
+            )
+            db.add(loc)
+            db.flush()
+        elif box:
+            loc.note = box.strip()
+
+        is_tool = kategorie == "Werkzeug"
+        is_loanable = kategorie in ["Werkzeug", "Kabel"]
+        photo_val = (
+            photolink.strip()
+            if (hat_foto and photolink and photolink.strip())
+            else ("vorhanden" if hat_foto else None)
+        )
+
+        item.locationid = loc.id
+        item.name = name.strip()
+        item.quantity = quantity
+        item.unit = unit.strip() if unit else "Stk."
+        item.note = note.strip() if note else None
+        item.is_tool = is_tool
+        item.isloanable = is_loanable
+        item.cabletype = cabletype.strip() if (kategorie == "Kabel" and cabletype) else None
+        item.cablelengthmeter = cablelengthmeter if kategorie == "Kabel" else None
+        item.expirydate = expirydate if kategorie == "Lagerwirtschaft" else None
+        item.photolink = photo_val
+
+        return True, f"Artikel '{item.name}' erfolgreich aktualisiert!"
+
+
+def delete_artikel(item_id_str: str) -> tuple[bool, str]:
+    """Löscht einen Artikel sicher aus Neon PostgreSQL."""
+    with get_db_session() as db:
+        item = db.get(Item, uuid.UUID(item_id_str))
+        if not item:
+            return False, "Artikel nicht gefunden."
+
+        if item.isonloan:
+            return (
+                False,
+                f"Artikel '{item.name}' ist aktuell verliehen und kann erst nach Rückgabe gelöscht werden!",
+            )
+
+        name = item.name
+        db.delete(item)
+        return True, f"Artikel '{name}' wurde erfolgreich gelöscht."
 
 # --- 4. SUCHE ÜBER ALLES ---
 def get_all_articles_joined(
