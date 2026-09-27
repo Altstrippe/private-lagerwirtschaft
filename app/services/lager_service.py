@@ -288,6 +288,7 @@ def get_all_articles_joined(
                     "nummer": loc_label,
                     "box": box,
                     "quantity": float(it.quantity),
+                    "bestand": float(it.quantity),
                     "unit": it.unit or "Stk.",
                     "hat_foto": bool(it.photolink),
                     "photolink": it.photolink,
