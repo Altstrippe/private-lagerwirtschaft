@@ -1,13 +1,31 @@
-import streamlit as st
-from app.services import lager_service
+import sys
+from pathlib import Path
 
+# --- 1. PFAD-FIX (Muss zwingend VOR allen anderen Importen stehen) ---
+# Bindet das Repository-Hauptverzeichnis in den Python-Suchpfad ein:
+ROOT_DIR = Path(__file__).resolve().parent.parent
+APP_DIR = Path(__file__).resolve().parent
+
+for p in (ROOT_DIR, APP_DIR):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
+# --- 2. IMPORTE ---
+import streamlit as st
+
+try:
+    from app.services import lager_service
+except ModuleNotFoundError:
+    import lager_service
+
+# --- 3. SEITEN-KONFIGURATION ---
 st.set_page_config(
     page_title="Lagerverwaltung Suhring",
     page_icon="📦",
     layout="wide"
 )
 
-# Prüfen, ob die App über einen QR-Code mit Parametern geöffnet wurde
+# Tiefenlink / QR-Code Scan vor Ort abfangen
 params = st.query_params
 qr_raum = params.get("raum", None)
 qr_fach = params.get("fach", None)
@@ -15,31 +33,31 @@ qr_fach = params.get("fach", None)
 st.title("📦 Lagerverwaltung Suhring")
 st.caption("Zentrale Erfassung, Fach-Inspektor & Werkzeugausleihe")
 
-# Schnell-Status bei QR-Scan
+# Schnellanzeige bei QR-Scan
 if qr_raum and qr_fach:
     st.info(f"📍 **Direktaufruf erkannt:** Raum: **{qr_raum}** | Fach/Schrank: **{qr_fach}**")
-    st.markdown("👉 Wechsle in der linken Seitenleiste auf **`4_Suche`**, um den exakten Fachinhalt einzusehen.")
+    st.markdown("👉 Wechsle in der linken Seitenleiste auf **`4_Suche`**, um den Inhalt einzusehen.")
     st.divider()
 
-# Dashboard-Übersicht
+# Dashboard-Zahlen direkt aus Neon abrufen
 col1, col2, col3 = st.columns(3)
 
 try:
     metrics = lager_service.get_dashboard_metrics()
-    col1.metric("Erfasste Artikel", metrics["gesamt_artikel"])
-    col2.metric("Aktuell verliehen", metrics["aktive_leihe"])
-    col3.metric("Lagerbewegungen", metrics["bewegungen"])
+    col1.metric("Erfasste Artikel", f"{metrics['gesamt_artikel']} Stk.")
+    col2.metric("Aktuell verliehen", f"{metrics['aktive_leihe']} Gegenstände")
+    col3.metric("Lagerorte", metrics["gesamt_orte"])
 except Exception as e:
-    st.warning("Verbindung zur Datenbank wird aufgebaut oder noch initialisiert...")
+    st.warning(f"Datenbankverbindung wird initialisiert... ({e})")
 
 st.divider()
 
 st.subheader("Schnellzugriff über die Seitenleiste:")
 st.markdown("""
-* **1_Dashboard:** Kennzahlen und Systemübersicht[cite: 2]
-* **2_Lagerplaetze:** QR-Code-Etiketten für Regalböden generieren und drucken[cite: 2]
-* **3_Artikel:** Neue Gegenstände und Werkzeuge einsortieren[cite: 2]
-* **4_Suche:** Volltextsuche und Fach-Inspektor vor Ort am Regal[cite: 2]
-* **5_Ausleihe:** Verleih von Kabeln & Werkzeugen mit Aus- und Rückgabedatum[cite: 2]
-* **6_Bestand:** Zu- und Abgänge für die Lagerwirtschaft erfassen[cite: 2]
+* **1_Dashboard:** Systemüberblick & aktuelle Kennzahlen
+* **2_Lagerplaetze:** Stellplätze ansehen & QR-Etiketten für Regale drucken
+* **3_Artikel:** Neue Gegenstände erfassen, bearbeiten, verschieben oder löschen
+* **4_Suche:** Volltextsuche & Fach-Inspektor für den QR-Scan vor Ort
+* **5_Ausleihe:** Verleih von Werkzeugen & Kabeln verwalten
+* **6_Bestand:** Zu- und Abgänge für die Lagerwirtschaft buchen
 """)
