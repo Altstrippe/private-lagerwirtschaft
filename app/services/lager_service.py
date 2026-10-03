@@ -372,11 +372,14 @@ def get_all_articles_joined(
         )
 
         if search_term:
+            term = f"%{search_term.strip()}%"
             stmt = stmt.where(
                 or_(
-                    Item.name.ilike(f"%{search_term}%"),
-                    Location.label.ilike(f"%{search_term}%"),
-                    Item.cabletype.ilike(f"%{search_term}%"),
+                    Item.name.ilike(term),
+                    Item.note.ilike(term),             # <-- Durchsucht Notizen & technische Daten
+                    Location.label.ilike(term),        # <-- Fach- / Schranknummer
+                    Location.note.ilike(term),         # <-- Kisten- / Boxen-Label
+                    Item.cabletype.ilike(term),        # <-- Kabeltyp
                 )
             )
 
@@ -419,7 +422,7 @@ def get_all_articles_joined(
                     "typ": loc_typ,
                     "nummer": loc_label,
                     "box": box,
-                    "note": it.note or "",
+                    "note": it.note or "",              # <-- Notiz für UI bereitstellen
                     "quantity": float(it.quantity),
                     "bestand": float(it.quantity),
                     "unit": it.unit or "Stk.",
