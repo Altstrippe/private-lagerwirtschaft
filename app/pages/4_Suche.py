@@ -57,6 +57,10 @@ with tab_suche:
                         st.markdown(f"**Kategorie:** {art['kategorie']}")
                         st.markdown(f"**Lagerort:** {art['raum']} ➔ {art['typ']} **{art['nummer']}**{box_text}")
                         st.markdown(f"**Bestand:** {menge} {einheit}")
+
+                        # Notizen / Technische Daten anzeigen, falls vorhanden
+                        if art.get("note"):
+                            st.info(f"📝 **Notiz / Daten:** {art['note']}")
                         
                         if art.get("photolink") and art["photolink"] != "vorhanden":
                             st.markdown(f"[📷 Foto zum Artikel ansehen]({art['photolink']})")
@@ -66,7 +70,7 @@ with tab_suche:
                             st.error(f"🔴 **Aktuell verliehen**\n\n{art.get('vermietung', '')}")
                         else:
                             st.success("🟢 **Verfügbar im Lager**")
-
+                            
     except Exception as e:
         st.error(f"Fehler bei der Suche: {e}")
 
