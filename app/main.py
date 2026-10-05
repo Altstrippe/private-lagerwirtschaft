@@ -13,6 +13,9 @@ for p in (ROOT_DIR, APP_DIR):
 # --- 2. IMPORTE ---
 import streamlit as st
 
+st.set_page_config(page_title="Lagerverwaltung", layout="wide")
+st.write("🟢 Python-Skript läuft...")
+
 try:
     from app.services import lager_service
 except ModuleNotFoundError:
