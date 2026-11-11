@@ -435,7 +435,10 @@ def get_all_articles_joined(
         return results
 
 
-# --- 5. LAGERWIRTSCHAFT (BESTAND ZU- / ABGANG) ---
+# Stelle sicher, dass StockMovement oben aus models importiert wird:
+from app.db.models import Item, Loan, Location, LocationType, Room, StockMovement
+
+# --- 5. LAGERWIRTSCHAFT (BESTAND ZU- / ABGANG & HISTORIE) ---
 def get_lagerwirtschaft_artikel() -> list[dict]:
     with get_db_session() as db:
         stmt = (
@@ -456,26 +459,83 @@ def get_lagerwirtschaft_artikel() -> list[dict]:
 
 
 def buche_lagerbewegung(
-    item_id_str: str, typ: str, menge: float, datum: date
-) -> float:
+    item_id_str: str,
+    typ: str,
+    menge: float,
+    datum: date,
+    quelle_ziel: str | None = None,
+    zweck: str | None = None,
+) -> tuple[bool, str, float]:
+    """Bucht Zu- oder Abgang transaktionssicher und protokolliert die Bewegung."""
+    if menge <= 0:
+        return False, "Die Buchungsmenge muss größer als 0 sein.", 0.0
+
     with get_db_session() as db:
         item = db.get(Item, uuid.UUID(item_id_str))
         if not item:
-            raise ValueError("Artikel nicht gefunden.")
+            return False, "Artikel nicht gefunden.", 0.0
 
         aktuelle_menge = float(item.quantity)
         if typ == "Zugang":
             neue_menge = aktuelle_menge + menge
-        else:
+        elif typ == "Abgang":
             if aktuelle_menge < menge:
-                raise ValueError(
-                    f"Nicht genügend Bestand! Vorhanden: {aktuelle_menge}"
+                return (
+                    False,
+                    f"Nicht genügend Bestand vorhanden! Aktueller Bestand: {aktuelle_menge} {item.unit or 'Stk.'}",
+                    aktuelle_menge,
                 )
             neue_menge = aktuelle_menge - menge
+        else:
+            return False, f"Unbekannter Buchungstyp: {typ}", aktuelle_menge
 
+        # 1. Neuen Ist-Bestand setzen
         item.quantity = neue_menge
-        return neue_menge
 
+        # 2. Historischen Bewegungsbeleg erfassen
+        movement = StockMovement(
+            itemid=item.id,
+            movement_type=typ,
+            quantity=menge,
+            movement_date=datum,
+            source_destination=quelle_ziel.strip() if quelle_ziel else None,
+            purpose=zweck.strip() if zweck else None,
+        )
+        db.add(movement)
+
+        einheit = item.unit or "Stk."
+        return (
+            True,
+            f"✅ {typ} von {menge} {einheit} erfolgreich gebucht. Neuer Gesamtbestand: {neue_menge} {einheit}",
+            neue_menge,
+        )
+
+
+def get_lagerbewegungen_historie(item_id_str: str | None = None, limit: int = 100) -> list[dict]:
+    """Liefert die dokumentierten Zu- und Abgänge sortiert nach Datum."""
+    with get_db_session() as db:
+        stmt = (
+            select(StockMovement)
+            .options(joinedload(StockMovement.item))
+            .order_by(StockMovement.movement_date.desc(), StockMovement.createdat.desc())
+            .limit(limit)
+        )
+        if item_id_str:
+            stmt = stmt.where(StockMovement.itemid == uuid.UUID(item_id_str))
+
+        movements = db.scalars(stmt).all()
+        results = []
+        for m in movements:
+            einheit = m.item.unit if m.item and m.item.unit else "Stk."
+            results.append({
+                "Datum": m.movement_date.strftime("%d.%m.%Y"),
+                "Artikel": m.item.name if m.item else "Unbekannt",
+                "Typ": "🟢 Zugang" if m.movement_type == "Zugang" else "🔴 Abgang",
+                "Menge": f"{float(m.quantity)} {einheit}",
+                "Woher / Wohin": m.source_destination or "-",
+                "Zweck / Notiz": m.purpose or "-",
+            })
+        return results
 
 # --- 6. AUSLEIHE & VERMIETUNG (WERKZEUG / KABEL) ---
 def get_leihbare_artikel() -> list[dict]:
