@@ -162,3 +162,18 @@ class Loan(Base):
     )
 
     item: Mapped["Item"] = relationship(back_populates="loans")
+
+
+class StockMovement(Base):
+    __tablename__ = "stock_movements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    itemid = Column(UUID(as_uuid=True), ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
+    movement_type = Column(String(20), nullable=False)  # 'Zugang' oder 'Abgang'
+    quantity = Column(Numeric(10, 2), nullable=False)
+    movement_date = Column(Date, nullable=False)
+    source_destination = Column(String(255), nullable=True)  # Woher / Wohin
+    purpose = Column(String(255), nullable=True)             # Zweck / Notiz
+    createdat = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+
+    item = relationship("Item", backref="movements")
