@@ -1,4 +1,33 @@
-from sqlalchemy.types import TypeDecorator, String
+from __future__ import annotations
+
+from datetime import date, datetime, timezone
+import enum
+import uuid
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
 
 class LocationType(str, enum.Enum):
     SCHRANK = "schrank"
@@ -14,53 +43,17 @@ class SafeLocationType(TypeDecorator):
     def process_bind_param(self, value, dialect):
         if isinstance(value, LocationType):
             return value.value
-        return str(value).lower() if value else "fach"
+        return str(value).lower().strip() if value else "fach"
 
     def process_result_value(self, value, dialect):
         if not value:
             return LocationType.FACH
-        val = str(value).lower()
+        val = str(value).lower().strip()
         if "schrank" in val:
             return LocationType.SCHRANK
-        elif "regal" in val:
+        if "regal" in val:
             return LocationType.REGAL
         return LocationType.FACH
-
-from __future__ import annotations
-
-
-from datetime import date, datetime, timezone
-import enum
-import uuid
-
-from sqlalchemy import (
-    Boolean,
-    CheckConstraint,
-    Date,
-    DateTime,
-    Enum,
-    ForeignKey,
-    Numeric,
-    String,
-    Text,
-    UniqueConstraint,
-    text,
-)
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class LocationType(str, enum.Enum):
-    SCHRANK = "schrank"
-    FACH = "fach"
 
 
 class User(Base):
@@ -114,7 +107,7 @@ class Location(Base):
         UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False
     )
     locationtype: Mapped[LocationType] = mapped_column(
-        Enum(LocationType, name="locationtype_enum"), nullable=False
+        SafeLocationType, nullable=False, default=LocationType.FACH
     )
     label: Mapped[str] = mapped_column(String(100), nullable=False)
     photo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -211,11 +204,11 @@ class StockMovement(Base):
     itemid: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("items.id", ondelete="CASCADE"), nullable=False
     )
-    movement_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'Zugang' oder 'Abgang'
+    movement_type: Mapped[str] = mapped_column(String(20), nullable=False)
     quantity: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     movement_date: Mapped[date] = mapped_column(Date, nullable=False)
-    source_destination: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Woher / Wohin
-    purpose: Mapped[str | None] = mapped_column(String(255), nullable=True)             # Zweck / Beleg
+    source_destination: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    purpose: Mapped[str | None] = mapped_column(String(255), nullable=True)
     createdat: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
