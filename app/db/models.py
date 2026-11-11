@@ -1,4 +1,33 @@
+from sqlalchemy.types import TypeDecorator, String
+
+class LocationType(str, enum.Enum):
+    SCHRANK = "schrank"
+    FACH = "fach"
+    REGAL = "regal"
+
+
+class SafeLocationType(TypeDecorator):
+    """Mappt Datenbank-Strings fehlertolerant auf LocationType und verhindert LookupErrors."""
+    impl = String(50)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, LocationType):
+            return value.value
+        return str(value).lower() if value else "fach"
+
+    def process_result_value(self, value, dialect):
+        if not value:
+            return LocationType.FACH
+        val = str(value).lower()
+        if "schrank" in val:
+            return LocationType.SCHRANK
+        elif "regal" in val:
+            return LocationType.REGAL
+        return LocationType.FACH
+
 from __future__ import annotations
+
 
 from datetime import date, datetime, timezone
 import enum
