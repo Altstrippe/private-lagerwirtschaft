@@ -18,25 +18,25 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.db.base import Base
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class Base(DeclarativeBase):
+    pass
+
+
 class LocationType(str, enum.Enum):
     SCHRANK = "schrank"
     FACH = "fach"
 
-    def __str__(self) -> str:
-        return self.value
-
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -53,6 +53,7 @@ class User(Base):
 
 class Room(Base):
     __tablename__ = "rooms"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -65,13 +66,16 @@ class Room(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
-    locations: Mapped[list["Location"]] = relationship(back_populates="room")
+    locations: Mapped[list["Location"]] = relationship(
+        back_populates="room", cascade="all, delete-orphan"
+    )
 
 
 class Location(Base):
     __tablename__ = "locations"
     __table_args__ = (
         UniqueConstraint("roomid", "locationtype", "label", name="uq_location_per_room"),
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -81,12 +85,7 @@ class Location(Base):
         UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False
     )
     locationtype: Mapped[LocationType] = mapped_column(
-        Enum(
-            LocationType,
-            name="locationtype_enum",
-            values_callable=lambda enum_cls: [item.value for item in enum_cls],
-        ),
-        nullable=False,
+        Enum(LocationType, name="locationtype_enum"), nullable=False
     )
     label: Mapped[str] = mapped_column(String(100), nullable=False)
     photo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -99,7 +98,9 @@ class Location(Base):
     )
 
     room: Mapped["Room"] = relationship(back_populates="locations")
-    items: Mapped[list["Item"]] = relationship(back_populates="location")
+    items: Mapped[list["Item"]] = relationship(
+        back_populates="location", cascade="all, delete-orphan"
+    )
 
 
 class Item(Base):
@@ -110,6 +111,7 @@ class Item(Base):
             "cablelengthmeter IS NULL OR cablelengthmeter >= 0",
             name="ck_items_cablelength_non_negative",
         ),
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -123,12 +125,13 @@ class Item(Base):
     unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     expirydate: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_tool: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     isloanable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     isonloan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    ishousehold: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    is_tool: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    ishousehold: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cabletype: Mapped[str | None] = mapped_column(String(100), nullable=True)
     cablelengthmeter: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    photolink: Mapped[str | None] = mapped_column(String(500), nullable=True)
     createdat: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -137,12 +140,17 @@ class Item(Base):
     )
 
     location: Mapped["Location"] = relationship(back_populates="items")
-    loans: Mapped[list["Loan"]] = relationship(back_populates="item")
-    photolink: Mapped[str | None] = mapped_column(String, nullable=True)
+    loans: Mapped[list["Loan"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
+    movements: Mapped[list["StockMovement"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
 
 
 class Loan(Base):
     __tablename__ = "loans"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -166,14 +174,21 @@ class Loan(Base):
 
 class StockMovement(Base):
     __tablename__ = "stock_movements"
+    __table_args__ = {"extend_existing": True}
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    itemid = Column(UUID(as_uuid=True), ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
-    movement_type = Column(String(20), nullable=False)  # 'Zugang' oder 'Abgang'
-    quantity = Column(Numeric(10, 2), nullable=False)
-    movement_date = Column(Date, nullable=False)
-    source_destination = Column(String(255), nullable=True)  # Woher / Wohin
-    purpose = Column(String(255), nullable=True)             # Zweck / Notiz
-    createdat = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    itemid: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("items.id", ondelete="CASCADE"), nullable=False
+    )
+    movement_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'Zugang' oder 'Abgang'
+    quantity: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    movement_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source_destination: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Woher / Wohin
+    purpose: Mapped[str | None] = mapped_column(String(255), nullable=True)             # Zweck / Beleg
+    createdat: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
 
-    item = relationship("Item", backref="movements")
+    item: Mapped["Item"] = relationship(back_populates="movements")
